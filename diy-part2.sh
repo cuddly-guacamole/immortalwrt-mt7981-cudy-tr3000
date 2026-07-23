@@ -50,18 +50,19 @@ get_latest_tag() {
     local REPO=$1
     local API_URL="https://api.github.com/repos/${REPO}/releases/latest"
     
-    echo "📡 获取 ${REPO} 最新版本..."
+    echo "📡 获取 ${REPO} 最新版本..." >&2
     local TAG=$(wget -q -O- "$API_URL" | grep -o '"tag_name": "[^"]*"' | sed 's/"tag_name": "//;s/"//')
     
     if [ -n "$TAG" ]; then
-        echo "✅ 最新版本: ${TAG}"
+        echo "✅ 最新版本: ${TAG}" >&2
         echo "$TAG"
         return 0
     else
-        echo "⚠️ 获取失败"
+        echo "⚠️ 获取失败" >&2
         return 1
     fi
 }
+
 
 # ============================================================
 # 函数1: 集成 mihomo 内核 (OpenClash)
@@ -79,7 +80,7 @@ integrate_mihomo() {
     local VERSION=$(get_latest_tag "MetaCubeX/mihomo")
     if [ -z "$VERSION" ]; then
         VERSION="v1.19.29"
-        echo "⚠️ 使用默认版本: ${VERSION}"
+        echo "⚠️ 使用默认版本: ${VERSION}" >&2
     fi
     
     # 正式版文件名不带 v 前缀: v1.19.29 → mihomo-linux-arm64-1.19.29.gz
@@ -139,7 +140,7 @@ integrate_adguardhome() {
     local VERSION=$(get_latest_tag "AdguardTeam/AdGuardHome")
     if [ -z "$VERSION" ]; then
         VERSION="v0.107.78"
-        echo "⚠️ 使用默认版本: ${VERSION}"
+        echo "⚠️ 使用默认版本: ${VERSION}" >&2
     fi
     
     local DOWNLOAD_URL="https://github.com/AdguardTeam/AdGuardHome/releases/download/${VERSION}/AdGuardHome_linux_arm64.tar.gz"
@@ -196,8 +197,18 @@ echo ""
 echo "🚀 开始执行集成任务..."
 echo ""
 
-integrate_mihomo
-integrate_adguardhome
+if [ "$ENABLE_MIHOMO" = "true" ]; then
+    integrate_mihomo
+else
+    echo "⏭️ 跳过 mihomo 内核集成 (ENABLE_MIHOMO=false)"
+fi
+
+if [ "$ENABLE_ADGUARDHOME" = "true" ]; then
+    integrate_adguardhome
+else
+    echo "⏭️ 跳过 AdGuardHome 集成 (ENABLE_ADGUARDHOME=false)"
+fi
+
 
 echo ""
 echo "=========================================="
