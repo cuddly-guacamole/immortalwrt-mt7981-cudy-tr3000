@@ -43,6 +43,8 @@ echo "   集成 mihomo: ${ENABLE_MIHOMO}"
 echo "   集成 AdGuardHome: ${ENABLE_ADGUARDHOME}"
 echo "=========================================="
 
+
+
 # ============================================================
 # 获取最新版本号
 # ============================================================
@@ -64,12 +66,13 @@ get_latest_tag() {
 }
 
 
+
 # ============================================================
-# 函数1: 集成 mihomo 内核 (OpenClash)
+# 函数1: 集成 mihomo 内核
 # ============================================================
 integrate_mihomo() {
     echo "=========================================="
-    echo "📦 开始集成 mihomo 内核 (OpenClash)"
+    echo "📦 开始集成 mihomo 内核"
     echo "=========================================="
     
     mkdir -p files/etc/openclash/core
@@ -105,8 +108,10 @@ integrate_mihomo() {
     return 0
 }
 
+
+
 # ============================================================
-# 函数2: 偷梁换柱集成 AdGuardHome
+# 函数2: 集成 AdGuardHome
 # ============================================================
 integrate_adguardhome() {
     echo "=========================================="
@@ -127,9 +132,22 @@ integrate_adguardhome() {
         echo "⚠️ 克隆失败，尝试用 master 分支..."
         git clone --depth=1 https://github.com/stevenjoezhang/luci-app-adguardhome.git package/luci-app-adguardhome
     fi
-    
-    # ---- 第2步：准备压缩版二进制文件 ----
+
     echo ""
+    echo "🔍 检测 .config 中 CONFIG_PACKAGE_adguardhome 状态..."
+    
+    if grep -q "CONFIG_PACKAGE_adguardhome=y" .config; then
+        echo "✅ 检测到官方源提供的 adguardhome 包已启用"
+        echo "   → 跳过压缩版集成"
+        echo ""
+        echo "💡 如果要使用压缩版，请在 .config 中确保："
+        echo "   CONFIG_PACKAGE_adguardhome is not set"
+        echo "=========================================="
+        return 0
+    fi
+
+    # ---- 第2步：准备压缩版二进制文件 ----
+    echo "⚠️ 官方 adguardhome 包未启用"
     echo "📥 下载并压缩 AdGuardHome 二进制..."
     
     mkdir -p files/usr/bin/AdGuardHome
@@ -173,6 +191,9 @@ integrate_adguardhome() {
     echo "=========================================="
     return 0
 }
+
+
+
 # ============================================================
 # 主执行流程: 依次调用两个独立函数
 # ============================================================
@@ -191,7 +212,6 @@ if [ "$ENABLE_ADGUARDHOME" = "true" ]; then
 else
     echo "⏭️ 跳过 AdGuardHome 集成 (ENABLE_ADGUARDHOME=false)"
 fi
-
 
 echo ""
 echo "=========================================="
