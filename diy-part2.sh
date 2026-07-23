@@ -164,22 +164,7 @@ integrate_adguardhome() {
         echo "❌ AdGuardHome 二进制下载失败"
         return 1
     fi
-    
-    # ---- 第3步：尝试修改官方包的 Makefile ----
-    echo ""
-    echo "🔍 寻找官方 adguardhome 包 Makefile..."
-    
-    ADG_MAKEFILE=$(find feeds -name "Makefile" -path "*/adguardhome/*" 2>/dev/null | head -n1)
-    
-    if [ -n "$ADG_MAKEFILE" ]; then
-        echo "🔍 找到 Makefile: $ADG_MAKEFILE"
-        local VERSION_NUM=$(echo "$VERSION" | sed 's/^v//')
-        sed -i "s/PKG_VERSION:=.*/PKG_VERSION:=${VERSION_NUM}/g" "$ADG_MAKEFILE" 2>/dev/null || true
-        echo "✅ 已修改 Makefile 版本号为: ${VERSION_NUM}"
-    else
-        echo "⚠️ 未找到官方 adguardhome 包"
-    fi
-    
+
     echo ""
     echo "=========================================="
     echo "✅ AdGuardHome 集成完成"
