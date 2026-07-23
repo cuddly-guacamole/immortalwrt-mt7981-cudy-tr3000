@@ -83,9 +83,7 @@ integrate_mihomo() {
         echo "⚠️ 使用默认版本: ${VERSION}" >&2
     fi
     
-    # 正式版文件名不带 v 前缀: v1.19.29 → mihomo-linux-arm64-1.19.29.gz
-    local VERSION_NUM=$(echo "$VERSION" | sed 's/^v//')
-    local FILE_NAME="mihomo-linux-arm64-${VERSION_NUM}.gz"
+    local FILE_NAME="mihomo-linux-arm64-${VERSION}.gz"
     local DOWNLOAD_URL="https://github.com/MetaCubeX/mihomo/releases/download/${VERSION}/${FILE_NAME}"
     
     echo "📥 下载 mihomo: ${VERSION}"
