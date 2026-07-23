@@ -43,6 +43,16 @@ on:
         required: false
         type: boolean
         default: false
+      mihomo_version:
+        description: 'mihomo 内核版本 (如 v1.19.29，留空则使用 v1.19.29)'
+        required: false
+        type: string
+        default: 'v1.19.29'
+      adguardhome_version:
+        description: 'AdGuardHome 版本 (如 v0.107.78，留空则使用 v0.107.78)'
+        required: false
+        type: string
+        default: 'v0.107.78'
 
 env:
   DEVICE_INPUT: ${{ github.event.inputs.device || github.event.client_payload.device }}
