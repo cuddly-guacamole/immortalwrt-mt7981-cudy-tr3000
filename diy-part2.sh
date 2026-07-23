@@ -38,12 +38,12 @@ integrate_mihomo() {
     echo "=========================================="
     
     # 检查是否启用 OpenClash
-    if ! grep -q "CONFIG_PACKAGE_luci-app-openclash=y" .config; then
-        echo "⏭️ OpenClash 未启用，跳过 mihomo 内核集成"
-        return 0
-    fi
+#    if ! grep -q "CONFIG_PACKAGE_luci-app-openclash=y" .config; then
+#        echo "⏭️ OpenClash 未启用，跳过 mihomo 内核集成"
+#        return 0
+#    fi
     
-    echo "✅ 检测到 OpenClash 已启用"
+#    echo "✅ 检测到 OpenClash 已启用"
     mkdir -p files/etc/openclash/core
     
     local DOWNLOAD_SUCCESS=false
@@ -132,12 +132,12 @@ integrate_adguardhome() {
     echo "=========================================="
     
     # 检查是否启用 AdGuardHome
-    if ! grep -q "CONFIG_PACKAGE_adguardhome=y" .config; then
-        echo "⏭️ AdGuardHome 未启用，跳过集成"
-        return 0
-    fi
+#    if ! grep -q "CONFIG_PACKAGE_adguardhome=y" .config; then
+#        echo "⏭️ AdGuardHome 未启用，跳过集成"
+#        return 0
+#    fi
     
-    echo "✅ 检测到 AdGuardHome 已启用"
+#    echo "✅ 检测到 AdGuardHome 已启用"
     mkdir -p files/usr/bin
     
     local DOWNLOAD_SUCCESS=false
