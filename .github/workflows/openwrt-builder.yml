@@ -43,16 +43,16 @@ on:
         required: false
         type: boolean
         default: false
-      mihomo_version:
-        description: 'mihomo 内核版本 (如 v1.19.29，留空则使用 v1.19.29)'
+      enable_mihomo:
+        description: '是否集成 mihomo 内核（当集成 OpenClash 时建议勾选）'
         required: false
-        type: string
-        default: 'v1.19.29'
-      adguardhome_version:
-        description: 'AdGuardHome 版本 (如 v0.107.78，留空则使用 v0.107.78)'
+        type: boolean
+        default: false
+      enable_adguardhome:
+        description: '是否集成 AdGuardHome 内核 + stevenjoezhang/luci-app-adguardhome 界面（当集成 AdGuardHome 时建议勾选）'
         required: false
-        type: string
-        default: 'v0.107.78'
+        type: boolean
+        default: false
 
 env:
   DEVICE_INPUT: ${{ github.event.inputs.device || github.event.client_payload.device }}
@@ -67,6 +67,9 @@ env:
   UPLOAD_RELEASE: ${{ github.event.inputs.release || github.event.client_payload.release }}
   PRERELEASE: ${{ github.event.inputs.prerelease }}
   TZ: Asia/Shanghai
+
+  ENABLE_MIHOMO: ${{ github.event.inputs.enable_mihomo }}
+  ENABLE_ADGUARDHOME: ${{ github.event.inputs.enable_adguardhome }}
 
 jobs:
   menuconfig:
