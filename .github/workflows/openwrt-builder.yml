@@ -45,12 +45,12 @@ on:
         default: false
 
       enable_mihomo:
-        description: '是否集成 mihomo 内核（当集成 OpenClash 时建议勾选）'
+        description: '是否集成最新版 mihomo 内核 + vernesong/OpenClash 界面（当集成 OpenClash 时建议勾选）'
         required: false
         type: boolean
         default: false
       enable_adguardhome:
-        description: '是否集成 AdGuardHome 内核 + stevenjoezhang/luci-app-adguardhome 界面（CONFIG_PACKAGE_adguardhome=y时会自动跳过集成经过upx压缩的版本）'
+        description: '是否集成最新版 AdGuardHome 内核 + stevenjoezhang/luci-app-adguardhome 界面（CONFIG_PACKAGE_adguardhome=y时会自动跳过集成经过upx压缩的版本）'
         required: false
         type: boolean
         default: false
