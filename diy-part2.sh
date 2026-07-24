@@ -30,9 +30,9 @@ sed -i 's/set wireless.${dev}.country=CN/set wireless.${dev}.country=AU/g' packa
 sed -i 's/channel="36"/channel="auto"/g' package/mtk/applications/mtwifi-cfg/files/mtwifi.sh
 
 # Enable TWT
-sed -i '/set wireless.${dev}.serialize=1/a\
-					set wireless.${dev}.twt_enable=1' \
-					package/mtk/applications/mtwifi-cfg/files/mtwifi.sh
+# sed -i '/set wireless.${dev}.serialize=1/a\
+# 					set wireless.${dev}.twt_enable=1' \
+# 					package/mtk/applications/mtwifi-cfg/files/mtwifi.sh
 
 # 临时解决Rust问题
 sed -i 's/ci-llvm=true/ci-llvm=false/g' feeds/packages/lang/rust/Makefile
@@ -51,13 +51,13 @@ sed -i 's/reg = <0x5c0000 0x7000000>;/reg = <0x5c0000 0x7a40000>;/' target/linux
 # ============================================================
 ENABLE_MIHOMO="${ENABLE_MIHOMO:-false}"
 ENABLE_ADGUARDHOME="${ENABLE_ADGUARDHOME:-false}"
-ENABLE_UA2F="${ENABLE_UA2F:-false}"
+# ENABLE_UA2F="${ENABLE_UA2F:-false}"
 
 echo "=========================================="
 echo "📋 集成开关状态："
 echo "   集成 mihomo: ${ENABLE_MIHOMO}"
 echo "   集成 AdGuardHome: ${ENABLE_ADGUARDHOME}"
-echo "   集成 UA2F: ${ENABLE_UA2F}"
+# echo "   集成 UA2F: ${ENABLE_UA2F}"
 echo "=========================================="
 
 # ============================================================
@@ -90,34 +90,34 @@ integrate_mihomo() {
     echo "📦 开始集成 mihomo"
     echo "=========================================="
 
-    local CLONE_SUCCESS=false
-    
-    echo "📥 克隆 OpenClash 源码..."
-    if [ -d "package/luci-app-openclash" ]; then
-        echo "⚠️ 目录已存在，删除后重新克隆..."
-        rm -rf package/luci-app-openclash
-    fi
-    
-    # 尝试 dev 分支
-    echo "尝试克隆 dev 分支..."
-    git clone --depth=1 -b dev https://github.com/vernesong/OpenClash.git package/luci-app-openclash
-    
-    if [ $? -ne 0 ]; then
-        echo "⚠️ dev 分支克隆失败，尝试 master 分支..."
-        git clone --depth=1 -b master https://github.com/vernesong/OpenClash.git package/luci-app-openclash
-        
-        if [ $? -ne 0 ]; then
-            echo "⚠️ master 分支克隆失败，将使用官方包"
-            echo "   → OpenClash 界面由官方源提供"
-            CLONE_SUCCESS=false
-        else
-            echo "✅ master 分支克隆成功"
-            CLONE_SUCCESS=true
-        fi
-    else
-        echo "✅ dev 分支克隆成功"
-        CLONE_SUCCESS=true
-    fi
+    # local CLONE_SUCCESS=false
+    # 
+    # echo "📥 克隆 OpenClash 源码..."
+    # if [ -d "package/luci-app-openclash" ]; then
+    #     echo "⚠️ 目录已存在，删除后重新克隆..."
+    #     rm -rf package/luci-app-openclash
+    # fi
+    # 
+    # # 尝试 dev 分支
+    # echo "尝试克隆 dev 分支..."
+    # git clone --depth=1 -b dev https://github.com/vernesong/OpenClash.git package/luci-app-openclash
+    # 
+    # if [ $? -ne 0 ]; then
+    #     echo "⚠️ dev 分支克隆失败，尝试 master 分支..."
+    #     git clone --depth=1 -b master https://github.com/vernesong/OpenClash.git package/luci-app-openclash
+    #     
+    #     if [ $? -ne 0 ]; then
+    #         echo "⚠️ master 分支克隆失败，将使用官方包"
+    #         echo "   → OpenClash 界面由官方源提供"
+    #         CLONE_SUCCESS=false
+    #     else
+    #         echo "✅ master 分支克隆成功"
+    #         CLONE_SUCCESS=true
+    #     fi
+    # else
+    #     echo "✅ dev 分支克隆成功"
+    #     CLONE_SUCCESS=true
+    # fi
 
 
 
@@ -179,11 +179,11 @@ integrate_mihomo() {
     echo "=========================================="
     echo "✅ 集成完成"
     echo ""
-    if [ "$CLONE_SUCCESS" = "true" ]; then
-        echo "   - OpenClash 界面: 源码克隆成功 (package/luci-app-openclash/)"
-    else
-        echo "   - OpenClash 界面: 使用官方源"
-    fi
+    # if [ "$CLONE_SUCCESS" = "true" ]; then
+    #     echo "   - OpenClash 界面: 源码克隆成功 (package/luci-app-openclash/)"
+    # else
+    #     echo "   - OpenClash 界面: 使用官方源"
+    # fi
     
     if [ "$KERNEL_DOWNLOAD_SUCCESS" = "true" ]; then
         echo "   - mihomo 内核: 已集成 ✅"
@@ -581,144 +581,144 @@ EOF
 # ============================================================
 # 函数3: 集成 UA2F
 # ============================================================
-integrate_ua2f() {
-    echo "=========================================="
-    echo "📦 开始集成 UA2F"
-    echo "=========================================="
-    
-    # ---- 第1步：获取最新版本号 ----
-    echo "📡 获取 UA2F 最新版本..."
-    
-    local API_URL="https://api.github.com/repos/Zxilly/UA2F/releases/latest"
-    local LATEST_TAG=$(wget -q -O- "$API_URL" | grep -o '"tag_name": "[^"]*"' | sed 's/"tag_name": "//;s/"//')
-    
-    if [ -z "$LATEST_TAG" ]; then
-        echo "⚠️ 获取最新版本失败，使用默认版本 v5.2.0"
-        LATEST_TAG="v5.2.0"
-    fi
-    echo "✅ 最新版本: ${LATEST_TAG}"
-
-
-
-    # ---- 第2步：下载 UA2F IPK ----
-    echo ""
-    echo "📥 下载 UA2F IPK..."
-    
-    local UA2F_FILE="ua2f_4.10.2-r1_aarch64_cortex-a53-24.10.0.ipk"
-    local DOWNLOAD_URL="https://github.com/Zxilly/UA2F/releases/download/${LATEST_TAG}/${UA2F_FILE}"
-    
-    echo "📥 下载 UA2F: ${LATEST_TAG}"
-    echo "   URL: $DOWNLOAD_URL"
-    
-    mkdir -p /tmp/ua2f_extract
-    
-    if ! wget -q -O /tmp/ua2f_extract/ua2f.ipk "$DOWNLOAD_URL"; then
-        echo "⚠️ 版本 ${LATEST_TAG} 下载失败，尝试回退到 v5.2.0..."
-        
-        local FALLBACK_TAG="v5.2.0"
-        local FALLBACK_URL="https://github.com/Zxilly/UA2F/releases/download/${FALLBACK_TAG}/${UA2F_FILE}"
-        
-        if wget -q -O /tmp/ua2f_extract/ua2f.ipk "$FALLBACK_URL"; then
-            echo "✅ 回退到 ${FALLBACK_TAG} 下载成功"
-            LATEST_TAG="${FALLBACK_TAG}"
-        else
-            echo "❌ UA2F 下载失败（包括回退版本），跳过集成"
-            rm -rf /tmp/ua2f_extract
-            return 1
-        fi
-    else
-        echo "✅ 下载成功，版本: ${LATEST_TAG}"
-    fi
-
-
-
-    # ---- 第3步：完整解压 IPK 到 files/ 目录 ----
-    echo ""
-    echo "📦 完整解压 IPK 到 files/ 目录..."
-    
-    cd /tmp/ua2f_extract
-    
-    tar -xzf ua2f.ipk 2>/dev/null || {
-        echo "❌ 解压 IPK 失败"
-        cd - > /dev/null
-        rm -rf /tmp/ua2f_extract
-        return 1
-    }
-    
-    if [ -f data.tar.gz ]; then
-        mkdir -p files
-        tar -xzf data.tar.gz -C files/ 2>/dev/null || {
-            echo "❌ 解压 data.tar.gz 失败"
-            cd - > /dev/null
-            rm -rf /tmp/ua2f_extract
-            return 1
-        }
-        echo "✅ IPK 已完整解压到 files/ 目录"
-        echo "📋 解压后的文件:"
-        find files/ -type f 2>/dev/null | head -10
-    else
-        echo "❌ data.tar.gz 不存在"
-        cd - > /dev/null
-        rm -rf /tmp/ua2f_extract
-        return 1
-    fi
-
-
-
-    # ---- 第4步：压缩 UA2F 二进制 ----
-    echo ""
-    echo "🔧 压缩 UA2F 二进制..."
-    
-    if [ -f files/usr/bin/ua2f ]; then
-        echo "压缩前: $(ls -lh files/usr/bin/ua2f | awk '{print $5}')"
-        upx --best --lzma files/usr/bin/ua2f 2>/dev/null || true
-        echo "压缩后: $(ls -lh files/usr/bin/ua2f | awk '{print $5}')"
-        echo "✅ UA2F 二进制已压缩"
-    else
-        echo "⚠️ 未找到 files/usr/bin/ua2f，跳过压缩"
-    fi
-
-
-
-    # ---- 第5步：创建配置文件 ----
-    echo ""
-    echo "📝 创建 UA2F 配置文件..."
-    
-    mkdir -p files/etc/config
-    
-    cat > files/etc/config/ua2f << 'EOF'
-config ua2f 'firewall'
-        option handle_fw '1'
-        option handle_tls '0'
-        option handle_intranet '1'
-        option handle_mmtls '1'
-
-config ua2f 'main'
-        option mode 'REDIRECT'
-        option listen_port '10010'
-        option nfqueue_workers '1'
-        option proxy_workers '0'
-        option disable_connmark '0'
-        option max_http_sessions '0'
-        option session_ttl '300'
-        option enabled '1'
-        option ua 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36'
-EOF
-    
-    echo "✅ 配置文件已创建: files/etc/config/ua2f"
-    
-    cd - > /dev/null
-    rm -rf /tmp/ua2f_extract
-    
-    echo ""
-    echo "=========================================="
-    echo "✅ UA2F 集成完成"
-    echo "   - 版本: ${LATEST_TAG}"
-    echo "   - 二进制: files/usr/bin/ua2f"
-    echo "   - 配置文件: files/etc/config/ua2f"
-    echo "=========================================="
-    return 0
-}
+# integrate_ua2f() {
+#     echo "=========================================="
+#     echo "📦 开始集成 UA2F"
+#     echo "=========================================="
+#     
+#     # ---- 第1步：获取最新版本号 ----
+#     echo "📡 获取 UA2F 最新版本..."
+#     
+#     local API_URL="https://api.github.com/repos/Zxilly/UA2F/releases/latest"
+#     local LATEST_TAG=$(wget -q -O- "$API_URL" | grep -o '"tag_name": "[^"]*"' | sed 's/"tag_name": "//;s/"//')
+#     
+#     if [ -z "$LATEST_TAG" ]; then
+#         echo "⚠️ 获取最新版本失败，使用默认版本 v5.2.0"
+#         LATEST_TAG="v5.2.0"
+#     fi
+#     echo "✅ 最新版本: ${LATEST_TAG}"
+# 
+# 
+# 
+#     # ---- 第2步：下载 UA2F IPK ----
+#     echo ""
+#     echo "📥 下载 UA2F IPK..."
+#     
+#     local UA2F_FILE="ua2f_4.10.2-r1_aarch64_cortex-a53-24.10.0.ipk"
+#     local DOWNLOAD_URL="https://github.com/Zxilly/UA2F/releases/download/${LATEST_TAG}/${UA2F_FILE}"
+#     
+#     echo "📥 下载 UA2F: ${LATEST_TAG}"
+#     echo "   URL: $DOWNLOAD_URL"
+#     
+#     mkdir -p /tmp/ua2f_extract
+#     
+#     if ! wget -q -O /tmp/ua2f_extract/ua2f.ipk "$DOWNLOAD_URL"; then
+#         echo "⚠️ 版本 ${LATEST_TAG} 下载失败，尝试回退到 v5.2.0..."
+#         
+#         local FALLBACK_TAG="v5.2.0"
+#         local FALLBACK_URL="https://github.com/Zxilly/UA2F/releases/download/${FALLBACK_TAG}/${UA2F_FILE}"
+#         
+#         if wget -q -O /tmp/ua2f_extract/ua2f.ipk "$FALLBACK_URL"; then
+#             echo "✅ 回退到 ${FALLBACK_TAG} 下载成功"
+#             LATEST_TAG="${FALLBACK_TAG}"
+#         else
+#             echo "❌ UA2F 下载失败（包括回退版本），跳过集成"
+#             rm -rf /tmp/ua2f_extract
+#             return 1
+#         fi
+#     else
+#         echo "✅ 下载成功，版本: ${LATEST_TAG}"
+#     fi
+# 
+# 
+# 
+#     # ---- 第3步：完整解压 IPK 到 files/ 目录 ----
+#     echo ""
+#     echo "📦 完整解压 IPK 到 files/ 目录..."
+#     
+#     cd /tmp/ua2f_extract
+#     
+#     tar -xzf ua2f.ipk 2>/dev/null || {
+#         echo "❌ 解压 IPK 失败"
+#         cd - > /dev/null
+#         rm -rf /tmp/ua2f_extract
+#         return 1
+#     }
+#     
+#     if [ -f data.tar.gz ]; then
+#         mkdir -p files
+#         tar -xzf data.tar.gz -C files/ 2>/dev/null || {
+#             echo "❌ 解压 data.tar.gz 失败"
+#             cd - > /dev/null
+#             rm -rf /tmp/ua2f_extract
+#             return 1
+#         }
+#         echo "✅ IPK 已完整解压到 files/ 目录"
+#         echo "📋 解压后的文件:"
+#         find files/ -type f 2>/dev/null | head -10
+#     else
+#         echo "❌ data.tar.gz 不存在"
+#         cd - > /dev/null
+#         rm -rf /tmp/ua2f_extract
+#         return 1
+#     fi
+# 
+# 
+# 
+#     # ---- 第4步：压缩 UA2F 二进制 ----
+#     echo ""
+#     echo "🔧 压缩 UA2F 二进制..."
+#     
+#     if [ -f files/usr/bin/ua2f ]; then
+#         echo "压缩前: $(ls -lh files/usr/bin/ua2f | awk '{print $5}')"
+#         upx --best --lzma files/usr/bin/ua2f 2>/dev/null || true
+#         echo "压缩后: $(ls -lh files/usr/bin/ua2f | awk '{print $5}')"
+#         echo "✅ UA2F 二进制已压缩"
+#     else
+#         echo "⚠️ 未找到 files/usr/bin/ua2f，跳过压缩"
+#     fi
+# 
+# 
+# 
+#     # ---- 第5步：创建配置文件 ----
+#     echo ""
+#     echo "📝 创建 UA2F 配置文件..."
+#     
+#     mkdir -p files/etc/config
+#     
+#     cat > files/etc/config/ua2f << 'EOF'
+# config ua2f 'firewall'
+#         option handle_fw '1'
+#         option handle_tls '0'
+#         option handle_intranet '1'
+#         option handle_mmtls '1'
+# 
+# config ua2f 'main'
+#         option mode 'REDIRECT'
+#         option listen_port '10010'
+#         option nfqueue_workers '1'
+#         option proxy_workers '0'
+#         option disable_connmark '0'
+#         option max_http_sessions '0'
+#         option session_ttl '300'
+#         option enabled '1'
+#         option ua 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36'
+# EOF
+#     
+#     echo "✅ 配置文件已创建: files/etc/config/ua2f"
+#     
+#     cd - > /dev/null
+#     rm -rf /tmp/ua2f_extract
+#     
+#     echo ""
+#     echo "=========================================="
+#     echo "✅ UA2F 集成完成"
+#     echo "   - 版本: ${LATEST_TAG}"
+#     echo "   - 二进制: files/usr/bin/ua2f"
+#     echo "   - 配置文件: files/etc/config/ua2f"
+#     echo "=========================================="
+#     return 0
+# }
 
 
 
@@ -741,11 +741,11 @@ else
     echo "⏭️ 跳过 AdGuardHome 集成 (ENABLE_ADGUARDHOME=false)"
 fi
 
-if [ "$ENABLE_UA2F" = "true" ]; then
-    integrate_ua2f
-else
-    echo "⏭️ 跳过 UA2F 集成 (ENABLE_UA2F=false)"
-fi
+# if [ "$ENABLE_UA2F" = "true" ]; then
+#     integrate_ua2f
+# else
+#     echo "⏭️ 跳过 UA2F 集成 (ENABLE_UA2F=false)"
+# fi
 
 echo ""
 echo "=========================================="
