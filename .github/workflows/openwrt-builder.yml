@@ -59,6 +59,11 @@ on:
         required: false
         type: boolean
         default: false
+     enable_ua2f:
+        description: '是否集成 UA2F (User-Agent 防检测，适用于校园网等场景)'
+        required: false
+        type: boolean
+        default: false
 
 env:
   DEVICE_INPUT: ${{ github.event.inputs.device || github.event.client_payload.device }}
@@ -77,6 +82,7 @@ env:
   ENABLE_MIHOMO: ${{ github.event.inputs.enable_mihomo }}
   ENABLE_ADGUARDHOME: ${{ github.event.inputs.enable_adguardhome }}
   ENABLE_ADGUARDHOME_CONFIG: ${{ github.event.inputs.enable_adguardhome_config }}
+  ENABLE_UA2F: ${{ github.event.inputs.enable_ua2f }}
 
 jobs:
   menuconfig:
