@@ -11,13 +11,28 @@
 #
 
 # Modify default IP
-sed -i 's/192\.168\.[0-9]*\.[0-9]*/192.168.10.1/g' package/base-files/files/bin/config_generate
+sed -i 's/192.168.6.1/192.168.10.1/g' package/base-files/files/bin/config_generate
 
 # Modify default theme
 #sed -i 's/luci-theme-bootstrap/luci-theme-argon/g' feeds/luci/collections/luci/Makefile
 
 # Modify hostname
-#sed -i 's/OpenWrt/P3TERX-Router/g' package/base-files/files/bin/config_generate
+sed -i "/hostname='ImmortalWrt'/s/'ImmortalWrt'/'CUDY'/g" package/base-files/files/bin/config_generate
+
+# 修改 MTK WiFi 默认配置
+sed -i 's/ssid="ImmortalWrt-2.4G"/ssid="CUDY-2.4G"/g' package/mtk/applications/mtwifi-cfg/files/mtwifi.sh
+sed -i 's/ssid="ImmortalWrt-5G"/ssid="CUDY-5G"/g' package/mtk/applications/mtwifi-cfg/files/mtwifi.sh
+
+# 修改默认国家码为 AU
+sed -i 's/set wireless.${dev}.country=CN/set wireless.${dev}.country=AU/g' package/mtk/applications/mtwifi-cfg/files/mtwifi.sh
+
+# 修改默认信道为 auto
+sed -i 's/channel="36"/channel="auto"/g' package/mtk/applications/mtwifi-cfg/files/mtwifi.sh
+
+# Enable TWT
+sed -i '/set wireless.${dev}.serialize=1/a\
+					set wireless.${dev}.twt_enable=1' \
+					package/mtk/applications/mtwifi-cfg/files/mtwifi.sh
 
 # 临时解决Rust问题
 sed -i 's/ci-llvm=true/ci-llvm=false/g' feeds/packages/lang/rust/Makefile
@@ -36,14 +51,14 @@ sed -i 's/reg = <0x5c0000 0x7000000>;/reg = <0x5c0000 0x7a40000>;/' target/linux
 # ============================================================
 ENABLE_MIHOMO="${ENABLE_MIHOMO:-false}"
 ENABLE_ADGUARDHOME="${ENABLE_ADGUARDHOME:-false}"
+ENABLE_UA2F="${ENABLE_UA2F:-false}"
 
 echo "=========================================="
 echo "📋 集成开关状态："
 echo "   集成 mihomo: ${ENABLE_MIHOMO}"
 echo "   集成 AdGuardHome: ${ENABLE_ADGUARDHOME}"
+echo "   集成 UA2F: ${ENABLE_UA2F}"
 echo "=========================================="
-
-
 
 # ============================================================
 # 获取最新版本号
@@ -136,11 +151,27 @@ integrate_mihomo() {
         rm -f /tmp/mihomo.gz
         KERNEL_DOWNLOAD_SUCCESS=true
     else
-        echo "⚠️ mihomo 内核下载失败"
-        echo "   → 用户可在 OpenClash 中手动上传或在线下载内核"
-        KERNEL_DOWNLOAD_SUCCESS=false
+        echo "⚠️ ${VERSION} 下载失败，尝试回退到 v1.19.29..."
+        
+        local FALLBACK_VERSION="v1.19.29"
+        local FALLBACK_FILE="mihomo-linux-arm64-${FALLBACK_VERSION}.gz"
+        local FALLBACK_URL="https://github.com/MetaCubeX/mihomo/releases/download/${FALLBACK_VERSION}/${FALLBACK_FILE}"
+        
+        if wget -q -O /tmp/mihomo.gz "$FALLBACK_URL"; then
+            gunzip -c /tmp/mihomo.gz > "$KERNEL_PATH"
+            chmod 755 "$KERNEL_PATH"
+            upx --best --lzma "$KERNEL_PATH" 2>/dev/null || true
+            echo "✅ 回退到 ${FALLBACK_VERSION} 下载成功"
+            ls -lh "$KERNEL_PATH"
+            rm -f /tmp/mihomo.gz
+            KERNEL_DOWNLOAD_SUCCESS=true
+            VERSION="${FALLBACK_VERSION}"
+        else
+            echo "❌ mihomo 内核下载失败"
+            echo "   → 用户可在 OpenClash 中手动上传或在线下载内核"
+            KERNEL_DOWNLOAD_SUCCESS=false
+        fi
     fi
-
 
 
 
@@ -238,8 +269,30 @@ integrate_adguardhome() {
         rm -f /tmp/AdGuardHome.tar.gz
         rm -rf /tmp/AdGuardHome
     else
-        echo "❌ AdGuardHome 二进制下载失败"
-        return 1
+        echo "⚠️ ${VERSION} 下载失败，尝试回退到 v0.107.78..."
+        
+        local FALLBACK_VERSION="v0.107.78"
+        local FALLBACK_URL="https://github.com/AdguardTeam/AdGuardHome/releases/download/${FALLBACK_VERSION}/AdGuardHome_linux_arm64.tar.gz"
+        
+        if wget -q -O /tmp/AdGuardHome.tar.gz "$FALLBACK_URL"; then
+            tar -xzf /tmp/AdGuardHome.tar.gz -C /tmp/
+            
+            upx --best --lzma /tmp/AdGuardHome/AdGuardHome 2>/dev/null || true
+            echo "✅ 压缩完成，大小:"
+            ls -lh /tmp/AdGuardHome/AdGuardHome
+            
+            cp /tmp/AdGuardHome/AdGuardHome files/usr/bin/AdGuardHome/AdGuardHome
+            chmod 755 files/usr/bin/AdGuardHome/AdGuardHome
+            
+            echo "✅ 回退到 ${FALLBACK_VERSION} 下载成功"
+            echo "✅ 压缩版二进制已放到: files/usr/bin/AdGuardHome/AdGuardHome"
+            
+            rm -f /tmp/AdGuardHome.tar.gz
+            rm -rf /tmp/AdGuardHome
+        else
+            echo "❌ AdGuardHome 二进制下载失败"
+            return 1
+        fi
     fi
 
 
@@ -526,7 +579,151 @@ EOF
 
 
 # ============================================================
-# 主执行流程: 依次调用两个独立函数
+# 函数3: 集成 UA2F
+# ============================================================
+integrate_ua2f() {
+    echo "=========================================="
+    echo "📦 开始集成 UA2F"
+    echo "=========================================="
+    
+    # ---- 第1步：获取最新版本号 ----
+    echo "📡 获取 UA2F 最新版本..."
+    
+    local API_URL="https://api.github.com/repos/Zxilly/UA2F/releases/latest"
+    local LATEST_TAG=$(wget -q -O- "$API_URL" | grep -o '"tag_name": "[^"]*"' | sed 's/"tag_name": "//;s/"//')
+    
+    if [ -z "$LATEST_TAG" ]; then
+        echo "⚠️ 获取最新版本失败，使用默认版本 v5.2.0"
+        LATEST_TAG="v5.2.0"
+    fi
+    echo "✅ 最新版本: ${LATEST_TAG}"
+
+
+
+    # ---- 第2步：下载 UA2F IPK ----
+    echo ""
+    echo "📥 下载 UA2F IPK..."
+    
+    local UA2F_FILE="ua2f_4.10.2-r1_aarch64_cortex-a53-24.10.0.ipk"
+    local DOWNLOAD_URL="https://github.com/Zxilly/UA2F/releases/download/${LATEST_TAG}/${UA2F_FILE}"
+    
+    echo "📥 下载 UA2F: ${LATEST_TAG}"
+    echo "   URL: $DOWNLOAD_URL"
+    
+    mkdir -p /tmp/ua2f_extract
+    
+    if ! wget -q -O /tmp/ua2f_extract/ua2f.ipk "$DOWNLOAD_URL"; then
+        echo "⚠️ 版本 ${LATEST_TAG} 下载失败，尝试回退到 v5.2.0..."
+        
+        local FALLBACK_TAG="v5.2.0"
+        local FALLBACK_URL="https://github.com/Zxilly/UA2F/releases/download/${FALLBACK_TAG}/${UA2F_FILE}"
+        
+        if wget -q -O /tmp/ua2f_extract/ua2f.ipk "$FALLBACK_URL"; then
+            echo "✅ 回退到 ${FALLBACK_TAG} 下载成功"
+            LATEST_TAG="${FALLBACK_TAG}"
+        else
+            echo "❌ UA2F 下载失败（包括回退版本），跳过集成"
+            rm -rf /tmp/ua2f_extract
+            return 1
+        fi
+    else
+        echo "✅ 下载成功，版本: ${LATEST_TAG}"
+    fi
+
+
+
+    # ---- 第3步：完整解压 IPK 到 files/ 目录 ----
+    echo ""
+    echo "📦 完整解压 IPK 到 files/ 目录..."
+    
+    cd /tmp/ua2f_extract
+    
+    tar -xzf ua2f.ipk 2>/dev/null || {
+        echo "❌ 解压 IPK 失败"
+        cd - > /dev/null
+        rm -rf /tmp/ua2f_extract
+        return 1
+    }
+    
+    if [ -f data.tar.gz ]; then
+        mkdir -p files
+        tar -xzf data.tar.gz -C files/ 2>/dev/null || {
+            echo "❌ 解压 data.tar.gz 失败"
+            cd - > /dev/null
+            rm -rf /tmp/ua2f_extract
+            return 1
+        }
+        echo "✅ IPK 已完整解压到 files/ 目录"
+        echo "📋 解压后的文件:"
+        find files/ -type f 2>/dev/null | head -10
+    else
+        echo "❌ data.tar.gz 不存在"
+        cd - > /dev/null
+        rm -rf /tmp/ua2f_extract
+        return 1
+    fi
+
+
+
+    # ---- 第4步：压缩 UA2F 二进制 ----
+    echo ""
+    echo "🔧 压缩 UA2F 二进制..."
+    
+    if [ -f files/usr/bin/ua2f ]; then
+        echo "压缩前: $(ls -lh files/usr/bin/ua2f | awk '{print $5}')"
+        upx --best --lzma files/usr/bin/ua2f 2>/dev/null || true
+        echo "压缩后: $(ls -lh files/usr/bin/ua2f | awk '{print $5}')"
+        echo "✅ UA2F 二进制已压缩"
+    else
+        echo "⚠️ 未找到 files/usr/bin/ua2f，跳过压缩"
+    fi
+
+
+
+    # ---- 第5步：创建配置文件 ----
+    echo ""
+    echo "📝 创建 UA2F 配置文件..."
+    
+    mkdir -p files/etc/config
+    
+    cat > files/etc/config/ua2f << 'EOF'
+config ua2f 'firewall'
+        option handle_fw '1'
+        option handle_tls '0'
+        option handle_intranet '1'
+        option handle_mmtls '1'
+
+config ua2f 'main'
+        option mode 'REDIRECT'
+        option listen_port '10010'
+        option nfqueue_workers '1'
+        option proxy_workers '0'
+        option disable_connmark '0'
+        option max_http_sessions '0'
+        option session_ttl '300'
+        option enabled '1'
+        option ua 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36'
+EOF
+    
+    echo "✅ 配置文件已创建: files/etc/config/ua2f"
+    
+    cd - > /dev/null
+    rm -rf /tmp/ua2f_extract
+    
+    echo ""
+    echo "=========================================="
+    echo "✅ UA2F 集成完成"
+    echo "   - 版本: ${LATEST_TAG}"
+    echo "   - 二进制: files/usr/bin/ua2f"
+    echo "   - 配置文件: files/etc/config/ua2f"
+    echo "=========================================="
+    return 0
+}
+
+
+
+# ============================================================
+# 主执行流程: 依次调用各个函数
 # ============================================================
 echo ""
 echo "🚀 开始执行集成任务..."
@@ -542,6 +739,12 @@ if [ "$ENABLE_ADGUARDHOME" = "true" ]; then
     integrate_adguardhome
 else
     echo "⏭️ 跳过 AdGuardHome 集成 (ENABLE_ADGUARDHOME=false)"
+fi
+
+if [ "$ENABLE_UA2F" = "true" ]; then
+    integrate_ua2f
+else
+    echo "⏭️ 跳过 UA2F 集成 (ENABLE_UA2F=false)"
 fi
 
 echo ""
