@@ -12,7 +12,7 @@ on:
         description: '编译设备型号'
         required: true
         type: choice
-        default: 'all'
+        default: '128M-Ubootmod'
         options:
           - '256M'
           - '128M'
@@ -45,12 +45,12 @@ on:
         default: false
 
       enable_mihomo:
-        description: '是否集成最新版 mihomo 内核 + vernesong/OpenClash 界面（当集成 OpenClash 时建议勾选）'
+        description: '是否集成 mihomo 内核 + vernesong/OpenClash 界面（当集成 OpenClash 时建议勾选）'
         required: false
         type: boolean
         default: false
       enable_adguardhome:
-        description: '是否集成最新版 AdGuardHome 内核 + stevenjoezhang/luci-app-adguardhome 界面（CONFIG_PACKAGE_adguardhome=y时会自动跳过集成经过upx压缩的版本）'
+        description: '是否集成 AdGuardHome 内核 + stevenjoezhang/luci-app-adguardhome 界面（CONFIG_PACKAGE_adguardhome=y时会自动跳过集成经过upx压缩的版本）'
         required: false
         type: boolean
         default: false
@@ -66,23 +66,23 @@ on:
         default: false
 
 env:
-  DEVICE_INPUT: ${{ github.event.inputs.device || github.event.client_payload.device }}
+  DEVICE_INPUT: ${{ github.event.inputs.device || github.event.client_payload.device || 'all' }}
   CCACHE_DIR: /workdir/.ccache
   CCACHE_MAXSIZE: 2G
-  REPO_URL: ${{ github.event.inputs.repo || github.event.client_payload.repo }}
+  REPO_URL: ${{ github.event.inputs.repo || github.event.client_payload.repo || 'https://github.com/padavanonly/immortalwrt-mt798x-6.6' }}
   REPO_BRANCH: openwrt-24.10-6.6
-  REPO_COMMIT: ${{ github.event.inputs.commit }}
+  REPO_COMMIT: ${{ github.event.inputs.commit || github.event.client_payload.commit || '' }}
   FEEDS_CONF: feeds.conf.default
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
-  UPLOAD_RELEASE: ${{ github.event.inputs.release || github.event.client_payload.release }}
-  PRERELEASE: ${{ github.event.inputs.prerelease }}
+  UPLOAD_RELEASE: ${{ github.event.inputs.release || github.event.client_payload.release || true }}
+  PRERELEASE: ${{ github.event.inputs.prerelease || github.event.client_payload.prerelease || false }}
   TZ: Asia/Shanghai
-
-  ENABLE_MIHOMO: ${{ github.event.inputs.enable_mihomo }}
-  ENABLE_ADGUARDHOME: ${{ github.event.inputs.enable_adguardhome }}
-  ENABLE_ADGUARDHOME_CONFIG: ${{ github.event.inputs.enable_adguardhome_config }}
-  ENABLE_UA2F: ${{ github.event.inputs.enable_ua2f }}
+  
+  ENABLE_MIHOMO: ${{ github.event.inputs.enable_mihomo || github.event.client_payload.enable_mihomo || false }}
+  ENABLE_ADGUARDHOME: ${{ github.event.inputs.enable_adguardhome || github.event.client_payload.enable_adguardhome || false }}
+  ENABLE_ADGUARDHOME_CONFIG: ${{ github.event.inputs.enable_adguardhome_config || github.event.client_payload.enable_adguardhome_config || false }}
+  ENABLE_UA2F: ${{ github.event.inputs.enable_ua2f || github.event.client_payload.enable_ua2f || false }}
 
 jobs:
   menuconfig:
