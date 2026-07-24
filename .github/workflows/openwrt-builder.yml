@@ -59,7 +59,7 @@ on:
         required: false
         type: boolean
         default: false
-     enable_ua2f:
+      enable_ua2f:
         description: '是否集成 UA2F (User-Agent 防检测，适用于校园网等场景)'
         required: false
         type: boolean
