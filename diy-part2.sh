@@ -68,15 +68,48 @@ get_latest_tag() {
 
 
 # ============================================================
-# 函数1: 集成 mihomo 内核
+# 函数1: 集成 mihomo
 # ============================================================
 integrate_mihomo() {
     echo "=========================================="
-    echo "📦 开始集成 mihomo 内核"
+    echo "📦 开始集成 mihomo"
     echo "=========================================="
+
+    local CLONE_SUCCESS=false
+    
+    echo "📥 克隆 OpenClash 源码..."
+    if [ -d "package/luci-app-openclash" ]; then
+        echo "⚠️ 目录已存在，删除后重新克隆..."
+        rm -rf package/luci-app-openclash
+    fi
+    
+    # 尝试 dev 分支
+    echo "尝试克隆 dev 分支..."
+    git clone --depth=1 -b dev https://github.com/vernesong/OpenClash.git package/luci-app-openclash
+    
+    if [ $? -ne 0 ]; then
+        echo "⚠️ dev 分支克隆失败，尝试 master 分支..."
+        git clone --depth=1 -b master https://github.com/vernesong/OpenClash.git package/luci-app-openclash
+        
+        if [ $? -ne 0 ]; then
+            echo "⚠️ master 分支克隆失败，将使用官方包"
+            echo "   → OpenClash 界面由官方源提供"
+            CLONE_SUCCESS=false
+        else
+            echo "✅ master 分支克隆成功"
+            CLONE_SUCCESS=true
+        fi
+    else
+        echo "✅ dev 分支克隆成功"
+        CLONE_SUCCESS=true
+    fi
+
+
+
+    echo ""
+    echo "📥 下载 mihomo 内核..."
     
     mkdir -p files/etc/openclash/core
-    
     local KERNEL_PATH="files/etc/openclash/core/clash_meta"
     
     # 获取最新版本
@@ -92,6 +125,8 @@ integrate_mihomo() {
     echo "📥 下载 mihomo: ${VERSION}"
     echo "   URL: $DOWNLOAD_URL"
     
+    local KERNEL_DOWNLOAD_SUCCESS=false
+    
     if wget -q -O /tmp/mihomo.gz "$DOWNLOAD_URL"; then
         gunzip -c /tmp/mihomo.gz > "$KERNEL_PATH"
         chmod 755 "$KERNEL_PATH"
@@ -99,11 +134,33 @@ integrate_mihomo() {
         echo "✅ mihomo 内核已集成到: $KERNEL_PATH"
         ls -lh "$KERNEL_PATH"
         rm -f /tmp/mihomo.gz
+        KERNEL_DOWNLOAD_SUCCESS=true
     else
-        echo "❌ mihomo 内核下载失败"
-        return 1
+        echo "⚠️ mihomo 内核下载失败"
+        echo "   → 用户可在 OpenClash 中手动上传或在线下载内核"
+        KERNEL_DOWNLOAD_SUCCESS=false
+    fi
+
+
+
+
+    echo ""
+    echo "=========================================="
+    echo "✅ 集成完成"
+    echo ""
+    if [ "$CLONE_SUCCESS" = "true" ]; then
+        echo "   - OpenClash 界面: 源码克隆成功 (package/luci-app-openclash/)"
+    else
+        echo "   - OpenClash 界面: 使用官方源"
     fi
     
+    if [ "$KERNEL_DOWNLOAD_SUCCESS" = "true" ]; then
+        echo "   - mihomo 内核: 已集成 ✅"
+        echo "   - 内核路径: $KERNEL_PATH"
+        echo "   - 内核版本: ${VERSION}"
+    else
+        echo "   - mihomo 内核: 未集成（可选，用户可手动上传）"
+    fi
     echo "=========================================="
     return 0
 }
