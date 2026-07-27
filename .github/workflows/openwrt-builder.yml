@@ -50,7 +50,7 @@ on:
         type: boolean
         default: false
       enable_adguardhome:
-        description: '是否集成 AdGuardHome 内核 + stevenjoezhang/luci-app-adguardhome 界面（CONFIG_PACKAGE_adguardhome=y时会自动跳过集成经过upx压缩的版本）'
+        description: '是否集成 AdGuardHome 内核 （CONFIG_PACKAGE_adguardhome=y时会自动跳过）'
         required: false
         type: boolean
         default: false
@@ -59,11 +59,6 @@ on:
         required: false
         type: boolean
         default: false
-      # enable_ua2f:
-      #   description: '是否集成 UA2F (User-Agent 防检测，适用于校园网等场景)'
-      #   required: false
-      #   type: boolean
-      #   default: false
 
 env:
   DEVICE_INPUT: ${{ github.event.inputs.device || github.event.client_payload.device || 'all' }}
@@ -82,7 +77,6 @@ env:
   ENABLE_MIHOMO: ${{ github.event.inputs.enable_mihomo || github.event.client_payload.enable_mihomo || false }}
   ENABLE_ADGUARDHOME: ${{ github.event.inputs.enable_adguardhome || github.event.client_payload.enable_adguardhome || false }}
   ENABLE_ADGUARDHOME_CONFIG: ${{ github.event.inputs.enable_adguardhome_config || github.event.client_payload.enable_adguardhome_config || false }}
-  # ENABLE_UA2F: ${{ github.event.inputs.enable_ua2f || github.event.client_payload.enable_ua2f || false }}
 
 jobs:
   menuconfig:
