@@ -23,7 +23,24 @@ if [ -d "$GITHUB_WORKSPACE/package/luci-compat-keep" ]; then
   cp -r "$GITHUB_WORKSPACE/package/luci-compat-keep" package/
 fi
 
-git clone https://github.com/eamonxg/luci-theme-aurora package/luci-theme-aurora
-git clone https://github.com/eamonxg/luci-app-aurora-config package/luci-app-aurora-config
-git clone https://github.com/timsaya/luci-app-bandix package/luci-app-bandix
-git clone https://github.com/timsaya/openwrt-bandix package/openwrt-bandix
+# luci-theme-aurora
+git clone  --depth 1 --single-branch https://github.com/eamonxg/luci-theme-aurora package/luci-theme-aurora
+# luci-app-aurora-config
+git clone  --depth 1 --single-branch https://github.com/eamonxg/luci-app-aurora-config package/luci-app-aurora-config
+
+# luci-app-bandix
+git clone --depth 1 --single-branch https://github.com/timsaya/luci-app-bandix.git temp-luci-app-bandix
+mv temp-luci-app-bandix/luci-app-bandix package/
+rm -rf temp-luci-app-bandix
+# openwrt-bandix
+git clone --depth 1 --single-branch https://github.com/timsaya/openwrt-bandix.git temp-openwrt-bandix
+mv temp-openwrt-bandix/openwrt-bandix package/
+rm -rf temp-openwrt-bandix
+
+# luci-app-openclash
+git clone --depth 1 --branch dev https://github.com/vernesong/OpenClash.git temp-openclash
+mv temp-openclash/luci-app-openclash package/
+rm -rf temp-openclash
+
+# luci-app-adguardhome
+git clone  --depth 1 --single-branch https://github.com/stevenjoezhang/luci-app-adguardhome package/luci-app-adguardhome
