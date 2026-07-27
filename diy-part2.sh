@@ -37,8 +37,8 @@ sed -i -e '/^IMG_PREFIX:=/i BUILD_DATE := $(shell date +%Y%m%d)' \
        -e '/^IMG_PREFIX:=/ s/\($(SUBTARGET)\)/\1-$(BUILD_DATE)/' include/image.mk
 
 # set ubi to 122M
-sed -i 's/model = "Cudy TR3000 v1 ubi 112M"/model = "Cudy TR3000 v1 ubi 122M"/g' target/linux/mediatek/dts/mt7981b-cudy-tr3000-v1-ubootmod.dts
-sed -i 's/reg = <0x5c0000 0x7000000>;/reg = <0x5c0000 0x7a40000>;/' target/linux/mediatek/dts/mt7981b-cudy-tr3000-v1-ubootmod.dts
+# sed -i 's/model = "Cudy TR3000 v1 ubi 112M"/model = "Cudy TR3000 v1 ubi 122M"/g' target/linux/mediatek/dts/mt7981b-cudy-tr3000-v1-ubootmod.dts
+# sed -i 's/reg = <0x5c0000 0x7000000>;/reg = <0x5c0000 0x7a40000>;/' target/linux/mediatek/dts/mt7981b-cudy-tr3000-v1-ubootmod.dts
 
 
 
