@@ -38,7 +38,7 @@ mv temp-openwrt-bandix/openwrt-bandix package/
 rm -rf temp-openwrt-bandix
 
 # luci-app-openclash
-rm -rf feeds/luci/luci-app-openclash
+rm -rf feeds/luci/luci-app-openclash 2>/dev/null || true
 git clone --depth 1 --branch dev https://github.com/vernesong/OpenClash.git temp-openclash
 mv temp-openclash/luci-app-openclash package/
 rm -rf temp-openclash
