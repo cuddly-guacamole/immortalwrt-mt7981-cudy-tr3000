@@ -45,17 +45,17 @@ on:
         default: false
 
       enable_mihomo:
-        description: '是否集成 mihomo 内核（当集成 OpenClash 时建议勾选）'
+        description: '是否集成 mihomo 内核 (当集成 OpenClash 时建议勾选)'
         required: false
         type: boolean
         default: false
       enable_adguardhome:
-        description: '是否集成 AdGuardHome 内核 （CONFIG_PACKAGE_adguardhome=y时会自动跳过）'
+        description: '是否集成 AdGuardHome 内核 (CONFIG_PACKAGE_adguardhome=y时会自动跳过)'
         required: false
         type: boolean
         default: false
       enable_adguardhome_config:
-        description: '是否集成预设的 AdGuardHome 配置文件 (仅当集成 AdGuardHome 时生效)'
+        description: '是否集成预设的 AdGuardHome 配置文件 (仅当集成 AdGuardHome 内核时生效)'
         required: false
         type: boolean
         default: false
