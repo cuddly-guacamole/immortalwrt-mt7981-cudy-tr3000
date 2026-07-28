@@ -45,7 +45,7 @@ on:
         default: false
 
       enable_mihomo:
-        description: '是否集成 mihomo 内核 (当集成 OpenClash 时建议勾选)'
+        description: '是否集成 mihomo 内核 (需 .config 中启用 luci-app-openclash)'
         required: false
         type: boolean
         default: false
@@ -55,7 +55,7 @@ on:
         type: boolean
         default: false
       enable_tweaks:
-        description: '小巧思: 开机自动复制mihomo内核到内存 + 集成自制AdGuardHome文件'
+        description: '小巧思: 开机小闪存模式复制mihomo到内存 + 集成AdGuardHome预设配置'
         required: false
         type: boolean
         default: false
