@@ -286,60 +286,86 @@ integrate_adguardhome() {
 
 
 # ============================================================
-# 函数3: 小巧思 (开机复制mihomo内核到内存 + AdGuardHome预设配置)
+# 函数3: 小巧思 (OpenClash预设 + AdGuardHome配置 + UPnP启用)
 # ============================================================
 apply_tweaks() {
     echo "=========================================="
     echo "✨ 开始应用小巧思"
     echo "=========================================="
 
-    # --- 小巧思1: 开机自动复制 mihomo 内核到 /tmp ---
-    if [ "$MIHOMO_INTEGRATED" = "true" ]; then
+    # --- 小巧思1: OpenClash 预设配置 + rc.local ---
+    if [ "$MIHOMO_INTEGRATED" = "true" ] && grep -q "CONFIG_PACKAGE_luci-app-openclash=y" .config 2>/dev/null; then
         echo ""
-        echo "🔧 小巧思1: mihomo 内核已集成，写入 rc.local (运行时检查小闪存模式)"
+        echo "🔧 小巧思1: mihomo 已集成且 luci-app-openclash 已启用"
+
+        # 写入 OpenClash 默认 UCI 配置
+        local OPENCLASH_CONFIG="files/etc/config/openclash"
+        mkdir -p files/etc/config
+
+        if [ -f "$OPENCLASH_CONFIG" ]; then
+            echo "   检测到已有 openclash 配置文件，追加/覆盖选项"
+        else
+            echo "   创建 openclash 配置文件"
+            echo "config openclash 'config'" > "$OPENCLASH_CONFIG"
+        fi
+
+        # 设置各项 UCI 选项（追加或覆盖）
+        set_uci_option() {
+            local FILE="$1"
+            local OPTION="$2"
+            local VALUE="$3"
+            if grep -q "option ${OPTION} " "$FILE" 2>/dev/null; then
+                sed -i "s/option ${OPTION} .*/option ${OPTION} '${VALUE}'/" "$FILE"
+            else
+                echo "	option ${OPTION} '${VALUE}'" >> "$FILE"
+            fi
+        }
+
+        set_uci_option "$OPENCLASH_CONFIG" default_dashboard zashboard
+        set_uci_option "$OPENCLASH_CONFIG" delay_start 5
+        set_uci_option "$OPENCLASH_CONFIG" small_flash_memory 1
+        set_uci_option "$OPENCLASH_CONFIG" skip_proxy_address 1
+        set_uci_option "$OPENCLASH_CONFIG" china_ip_route 1
+        set_uci_option "$OPENCLASH_CONFIG" en_mode fake-ip-mix
+        set_uci_option "$OPENCLASH_CONFIG" operation_mode fake-ip-mix
+
+        echo "✅ OpenClash 预设配置已写入:"
+        echo "   - 面板: Zashboard"
+        echo "   - 延迟启动: 5s"
+        echo "   - 小闪存模式: 开启"
+        echo "   - 绕过服务器地址: 开启"
+        echo "   - 绕过中国大陆 IP: 开启"
+        echo "   - 运行模式: Fake-IP + TUN 混合"
+
+        # 写入 rc.local: 开机自动复制内核到 /tmp
         mkdir -p files/etc
         if [ ! -f files/etc/rc.local ]; then
             cat > files/etc/rc.local << 'RCEOF'
 #!/bin/sh
 # OpenWrt rc.local - executed at boot
 
-# 小巧思: OpenClash 小闪存模式下自动复制内核到 /tmp
-if [ -f /etc/config/openclash ] && [ -f /etc/openclash/core/clash_meta ]; then
-    if uci -q get openclash.config.small_flash_memory | grep -q '1'; then
-        mkdir -p /tmp/etc/openclash/core
-        cp /etc/openclash/core/clash_meta /tmp/etc/openclash/core/
-        # 延迟启动小于5秒则调整为5秒
-        DELAY=$(uci -q get openclash.config.delay_start)
-        if [ -n "$DELAY" ] && [ "$DELAY" -lt 5 ] 2>/dev/null; then
-            uci set openclash.config.delay_start='5'
-            uci commit openclash
-        fi
-    fi
+# 小巧思: 自动复制 mihomo 内核到 /tmp
+if [ -f /etc/openclash/core/clash_meta ]; then
+    mkdir -p /tmp/etc/openclash/core
+    cp /etc/openclash/core/clash_meta /tmp/etc/openclash/core/
 fi
 
 exit 0
 RCEOF
             chmod 755 files/etc/rc.local
         else
-            if ! grep -q "small_flash_memory" files/etc/rc.local 2>/dev/null; then
+            if ! grep -q "clash_meta" files/etc/rc.local 2>/dev/null; then
                 sed -i '/^exit 0/i\
-# 小巧思: OpenClash 小闪存模式下自动复制内核到 /tmp\
-if [ -f /etc/config/openclash ] \&\& [ -f /etc/openclash/core/clash_meta ]; then\
-    if uci -q get openclash.config.small_flash_memory | grep -q '\''1'\''; then\
-        mkdir -p /tmp/etc/openclash/core\
-        cp /etc/openclash/core/clash_meta /tmp/etc/openclash/core/\
-        DELAY=$(uci -q get openclash.config.delay_start)\
-        if [ -n "$DELAY" ] \&\& [ "$DELAY" -lt 5 ] 2>/dev/null; then\
-            uci set openclash.config.delay_start='\''5'\''\
-            uci commit openclash\
-        fi\
-    fi\
+# 小巧思: 自动复制 mihomo 内核到 /tmp\
+if [ -f /etc/openclash/core/clash_meta ]; then\
+    mkdir -p /tmp/etc/openclash/core\
+    cp /etc/openclash/core/clash_meta /tmp/etc/openclash/core/\
 fi' files/etc/rc.local
             fi
         fi
-        echo "✅ 已写入 rc.local (开机时检查小闪存模式后复制内核，延迟启动<5s调整为5s)"
+        echo "✅ rc.local 已写入 (开机自动复制内核到 /tmp)"
     else
-        echo "⏭️ mihomo 内核未集成成功，跳过"
+        echo "⏭️ mihomo 未集成或 luci-app-openclash 未启用，跳过 OpenClash 预设"
     fi
 
     # --- 小巧思2: 写入预设 AdGuardHome 配置文件 ---
@@ -356,6 +382,52 @@ fi' files/etc/rc.local
         fi
     else
         echo "⏭️ AdGuardHome 内核未集成或 luci-app-adguardhome 未启用，跳过预设配置文件"
+    fi
+
+    # --- 小巧思3: 自动启用 UPnP ---
+    if grep -q "CONFIG_PACKAGE_luci-app-upnp=y" .config 2>/dev/null; then
+        echo ""
+        echo "🔧 小巧思3: 检测到 luci-app-upnp 已启用，自动开启 UPnP 服务"
+        local UPNP_CONFIG="files/etc/config/upnpd"
+        mkdir -p files/etc/config
+
+        if [ -f "$UPNP_CONFIG" ]; then
+            if grep -q "option enabled " "$UPNP_CONFIG" 2>/dev/null; then
+                sed -i "s/option enabled .*/option enabled '1'/" "$UPNP_CONFIG"
+            else
+                sed -i '/config upnpd/a\\	option enabled '\''1'\''' "$UPNP_CONFIG"
+            fi
+        else
+            cat > "$UPNP_CONFIG" << 'EOF'
+config upnpd config
+	option enabled '1'
+	option enable_natpmp '1'
+	option enable_upnp '1'
+	option secure_mode '1'
+	option log_output '0'
+	option download '1024'
+	option upload '512'
+	option internal_iface 'lan'
+	option port '5000'
+
+config perm_rule
+	option action    'allow'
+	option ext_ports '1024-65535'
+	option int_addr  '0.0.0.0/0'
+	option int_ports '1024-65535'
+	option comment   'Allow high ports'
+
+config perm_rule
+	option action    'deny'
+	option ext_ports '0-65535'
+	option int_addr  '0.0.0.0/0'
+	option int_ports '0-65535'
+	option comment   'Default deny'
+EOF
+        fi
+        echo "✅ UPnP 服务已启用 (upnpd.config.enabled=1)"
+    else
+        echo "⏭️ luci-app-upnp 未启用，跳过 UPnP 配置"
     fi
 
     echo ""
