@@ -59,25 +59,6 @@ echo "   集成 AdGuardHome: ${ENABLE_ADGUARDHOME}"
 echo "   小巧思: ${ENABLE_TWEAKS}"
 echo "=========================================="
 
-# ============================================================
-# 获取最新版本号
-# ============================================================
-get_latest_tag() {
-    local REPO=$1
-    local API_URL="https://api.github.com/repos/${REPO}/releases/latest"
-    
-    echo "📡 获取 ${REPO} 最新版本..." >&2
-    local TAG=$(wget -q -O- "$API_URL" | grep -o '"tag_name": "[^"]*"' | sed 's/"tag_name": "//;s/"//')
-    
-    if [ -n "$TAG" ]; then
-        echo "✅ 最新版本: ${TAG}" >&2
-        echo "$TAG"
-        return 0
-    else
-        echo "⚠️ 获取失败" >&2
-        return 1
-    fi
-}
 
 
 
@@ -114,7 +95,8 @@ integrate_mihomo() {
         
         # 优先级2: 正式版 (API获取最新tag)
         echo "🔍 [2/3] 尝试正式版..."
-        local STABLE_TAG=$(get_latest_tag "MetaCubeX/mihomo")
+        local STABLE_API="https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
+        local STABLE_TAG=$(wget -q -O- "$STABLE_API" 2>/dev/null | grep -o '"tag_name": "[^"]*"' | sed 's/"tag_name": "//;s/"//')
         
         if [ -n "$STABLE_TAG" ]; then
             DOWNLOAD_URL="https://github.com/MetaCubeX/mihomo/releases/download/${STABLE_TAG}/mihomo-linux-arm64-${STABLE_TAG}.gz"
@@ -217,16 +199,10 @@ integrate_adguardhome() {
     
     mkdir -p files/usr/bin/AdGuardHome
     
-    # 获取最新版本
-    local VERSION=$(get_latest_tag "AdguardTeam/AdGuardHome")
-    if [ -z "$VERSION" ]; then
-        VERSION="v0.107.78"
-        echo "⚠️ 使用默认版本: ${VERSION}" >&2
-    fi
+    local DOWNLOAD_URL="https://github.com/AdguardTeam/AdGuardHome/releases/latest/download/AdGuardHome_linux_arm64.tar.gz"
+    local FALLBACK_URL="https://github.com/AdguardTeam/AdGuardHome/releases/download/v0.107.78/AdGuardHome_linux_arm64.tar.gz"
     
-    local DOWNLOAD_URL="https://github.com/AdguardTeam/AdGuardHome/releases/download/${VERSION}/AdGuardHome_linux_arm64.tar.gz"
-    
-    echo "📥 下载 AdGuardHome: ${VERSION}"
+    echo "📥 下载 AdGuardHome (latest)"
     echo "   URL: $DOWNLOAD_URL"
     
     if wget -q -O /tmp/AdGuardHome.tar.gz "$DOWNLOAD_URL"; then
@@ -245,10 +221,7 @@ integrate_adguardhome() {
         rm -f /tmp/AdGuardHome.tar.gz
         rm -rf /tmp/AdGuardHome
     else
-        echo "⚠️ ${VERSION} 下载失败，尝试回退到 v0.107.78..."
-        
-        local FALLBACK_VERSION="v0.107.78"
-        local FALLBACK_URL="https://github.com/AdguardTeam/AdGuardHome/releases/download/${FALLBACK_VERSION}/AdGuardHome_linux_arm64.tar.gz"
+        echo "⚠️ latest 下载失败，尝试回退到 v0.107.78..."
         
         if wget -q -O /tmp/AdGuardHome.tar.gz "$FALLBACK_URL"; then
             tar -xzf /tmp/AdGuardHome.tar.gz -C /tmp/
@@ -260,7 +233,7 @@ integrate_adguardhome() {
             cp /tmp/AdGuardHome/AdGuardHome files/usr/bin/AdGuardHome/AdGuardHome
             chmod 755 files/usr/bin/AdGuardHome/AdGuardHome
             
-            echo "✅ 回退到 ${FALLBACK_VERSION} 下载成功"
+            echo "✅ 回退到 v0.107.78 下载成功"
             echo "✅ 压缩版二进制已放到: files/usr/bin/AdGuardHome/AdGuardHome"
             ADGUARDHOME_INTEGRATED=true
             
@@ -329,6 +302,17 @@ apply_tweaks() {
         set_uci_option "$OPENCLASH_CONFIG" en_mode fake-ip-mix
         set_uci_option "$OPENCLASH_CONFIG" operation_mode fake-ip-mix
 
+        # 覆写设置
+        set_uci_option "$OPENCLASH_CONFIG" enable_tcp_concurrent 1
+        set_uci_option "$OPENCLASH_CONFIG" enable_unified_delay 1
+        set_uci_option "$OPENCLASH_CONFIG" find_process_mode off
+        set_uci_option "$OPENCLASH_CONFIG" geodata_loader memconservative
+        set_uci_option "$OPENCLASH_CONFIG" enable_meta_sniffer 1
+        set_uci_option "$OPENCLASH_CONFIG" enable_meta_sniffer_pure_ip 1
+        set_uci_option "$OPENCLASH_CONFIG" smart_prefer_asn 1
+        set_uci_option "$OPENCLASH_CONFIG" enable_respect_rules 1
+        set_uci_option "$OPENCLASH_CONFIG" store_fakeip 1
+
         echo "✅ OpenClash 预设配置已写入:"
         echo "   - 面板: Zashboard"
         echo "   - 延迟启动: 5s"
@@ -336,6 +320,47 @@ apply_tweaks() {
         echo "   - 绕过服务器地址: 开启"
         echo "   - 绕过中国大陆 IP: 开启"
         echo "   - 运行模式: Fake-IP + TUN 混合"
+        echo "   - TCP 并发: 开启"
+        echo "   - 统一延迟: 开启"
+        echo "   - 进程规则: OFF"
+        echo "   - Geodata 加载: 低内存模式"
+        echo "   - 流量探测: 开启"
+        echo "   - 嗅探纯 IP: 开启"
+        echo "   - ASN 优先: 开启"
+        echo "   - 遵循规则: 开启"
+        echo "   - Fake-IP 持久化: 开启"
+
+        # 下载最新 Zashboard 面板替换预置版本
+        local ZASHBOARD_URL="https://github.com/Zephyruso/zashboard/releases/latest/download/dist-cdn-fonts.zip"
+        local ZASHBOARD_DIR="files/usr/share/openclash/ui/zashboard"
+        echo ""
+        echo "📥 下载最新 Zashboard 面板 (CDN字体版)..."
+        if wget -q -O /tmp/zashboard.zip "$ZASHBOARD_URL"; then
+            rm -rf "$ZASHBOARD_DIR"
+            mkdir -p "$ZASHBOARD_DIR"
+            unzip -q -o /tmp/zashboard.zip -d "$ZASHBOARD_DIR"
+            rm -f /tmp/zashboard.zip
+            echo "✅ Zashboard 面板已更新到: $ZASHBOARD_DIR"
+        else
+            echo "⚠️ Zashboard 下载失败，将使用 OpenClash 预置版本"
+            rm -f /tmp/zashboard.zip
+        fi
+
+        # 下载最新 Metacubexd 面板替换预置版本
+        local METACUBEXD_URL="https://github.com/MetaCubeX/metacubexd/releases/latest/download/compressed-dist.tgz"
+        local METACUBEXD_DIR="files/usr/share/openclash/ui/metacubexd"
+        echo ""
+        echo "📥 下载最新 Metacubexd 面板 (压缩版)..."
+        if wget -q -O /tmp/metacubexd.tgz "$METACUBEXD_URL"; then
+            rm -rf "$METACUBEXD_DIR"
+            mkdir -p "$METACUBEXD_DIR"
+            tar -xzf /tmp/metacubexd.tgz -C "$METACUBEXD_DIR"
+            rm -f /tmp/metacubexd.tgz
+            echo "✅ Metacubexd 面板已更新到: $METACUBEXD_DIR"
+        else
+            echo "⚠️ Metacubexd 下载失败，将使用 OpenClash 预置版本"
+            rm -f /tmp/metacubexd.tgz
+        fi
 
         # 写入 rc.local: 开机自动复制内核到 /tmp
         mkdir -p files/etc
