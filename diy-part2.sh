@@ -350,7 +350,7 @@ apply_tweaks() {
         local METACUBEXD_URL="https://github.com/MetaCubeX/metacubexd/releases/latest/download/compressed-dist.tgz"
         local METACUBEXD_DIR="files/usr/share/openclash/ui/metacubexd"
         echo ""
-        echo "📥 下载最新 Metacubexd 面板 (压缩版)..."
+        echo "📥 下载最新 Metacubexd 面板..."
         if wget -q -O /tmp/metacubexd.tgz "$METACUBEXD_URL"; then
             rm -rf "$METACUBEXD_DIR"
             mkdir -p "$METACUBEXD_DIR"
@@ -360,6 +360,19 @@ apply_tweaks() {
         else
             echo "⚠️ Metacubexd 下载失败，将使用 OpenClash 预置版本"
             rm -f /tmp/metacubexd.tgz
+        fi
+
+        # 下载预设 mihomo 配置文件
+        local CONFIG_GIST_URL="https://gist.github.com/cuddly-guacamole/70940f1c6c1b1bbee87e66fc04aacd39/raw/config.yaml"
+        local CONFIG_DIR="files/etc/openclash/config"
+        echo ""
+        echo "📥 下载预设 mihomo 配置文件..."
+        mkdir -p "$CONFIG_DIR"
+        if wget -q -O "$CONFIG_DIR/config.yaml" "$CONFIG_GIST_URL"; then
+            echo "✅ 预设配置文件已写入: $CONFIG_DIR/config.yaml"
+        else
+            echo "⚠️ mihomo 配置文件下载失败"
+            rm -f "$CONFIG_DIR/config.yaml"
         fi
 
         # 写入 rc.local: 开机自动复制内核到 /tmp
