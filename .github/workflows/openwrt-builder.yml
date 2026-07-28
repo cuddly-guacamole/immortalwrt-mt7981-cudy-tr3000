@@ -54,8 +54,8 @@ on:
         required: false
         type: boolean
         default: false
-      enable_adguardhome_config:
-        description: '是否集成预设的 AdGuardHome 配置文件 (仅当集成 AdGuardHome 内核时生效)'
+      enable_tweaks:
+        description: '小巧思: 开机自动复制mihomo内核到内存 + 集成自制AdGuardHome文件'
         required: false
         type: boolean
         default: false
@@ -76,7 +76,7 @@ env:
   
   ENABLE_MIHOMO: ${{ github.event.inputs.enable_mihomo || github.event.client_payload.enable_mihomo || false }}
   ENABLE_ADGUARDHOME: ${{ github.event.inputs.enable_adguardhome || github.event.client_payload.enable_adguardhome || false }}
-  ENABLE_ADGUARDHOME_CONFIG: ${{ github.event.inputs.enable_adguardhome_config || github.event.client_payload.enable_adguardhome_config || false }}
+  ENABLE_TWEAKS: ${{ github.event.inputs.enable_tweaks || github.event.client_payload.enable_tweaks || false }}
 
 jobs:
   menuconfig:
