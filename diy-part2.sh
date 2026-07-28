@@ -344,22 +344,26 @@ apply_tweaks() {
 #!/bin/sh
 # OpenWrt rc.local - executed at boot
 
-# 小巧思: 自动复制 mihomo 内核到 /tmp
+# 小巧思: 小闪存模式下自动复制 mihomo 内核到 /tmp
 if [ -f /etc/openclash/core/clash_meta ]; then
-    mkdir -p /tmp/etc/openclash/core
-    cp /etc/openclash/core/clash_meta /tmp/etc/openclash/core/
+    if uci -q get openclash.config.small_flash_memory | grep -q '1'; then
+        mkdir -p /tmp/etc/openclash/core
+        cp /etc/openclash/core/clash_meta /tmp/etc/openclash/core/
+    fi
 fi
 
 exit 0
 RCEOF
             chmod 755 files/etc/rc.local
         else
-            if ! grep -q "clash_meta" files/etc/rc.local 2>/dev/null; then
+            if ! grep -q "small_flash_memory" files/etc/rc.local 2>/dev/null; then
                 sed -i '/^exit 0/i\
-# 小巧思: 自动复制 mihomo 内核到 /tmp\
+# 小巧思: 小闪存模式下自动复制 mihomo 内核到 /tmp\
 if [ -f /etc/openclash/core/clash_meta ]; then\
-    mkdir -p /tmp/etc/openclash/core\
-    cp /etc/openclash/core/clash_meta /tmp/etc/openclash/core/\
+    if uci -q get openclash.config.small_flash_memory | grep -q '\''1'\''; then\
+        mkdir -p /tmp/etc/openclash/core\
+        cp /etc/openclash/core/clash_meta /tmp/etc/openclash/core/\
+    fi\
 fi' files/etc/rc.local
             fi
         fi
