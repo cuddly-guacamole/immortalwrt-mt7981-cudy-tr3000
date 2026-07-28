@@ -217,6 +217,18 @@ jobs:
           $GITHUB_WORKSPACE/$DIY_P1_SH
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          # 加载 .config 供 diy-part2.sh 检查编译选项
+          if [ "$DEVICE_INPUT" != "all" ]; then
+            case "$DEVICE_INPUT" in
+              "256M") CONFIG="config/256m.config" ;;
+              "128M") CONFIG="config/128m.config" ;;
+              "128M-Ubootmod") CONFIG="config/128muboot.config" ;;
+            esac
+            if [ -e "$GITHUB_WORKSPACE/$CONFIG" ]; then
+              cp -f "$GITHUB_WORKSPACE/$CONFIG" .config
+              make defconfig
+            fi
+          fi
           chmod +x $GITHUB_WORKSPACE/$DIY_P2_SH
           $GITHUB_WORKSPACE/$DIY_P2_SH
 
