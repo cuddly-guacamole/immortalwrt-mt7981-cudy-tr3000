@@ -266,10 +266,10 @@ apply_tweaks() {
     echo "✨ 开始应用小巧思"
     echo "=========================================="
 
-    # --- 小巧思1: OpenClash 预设配置 + rc.local ---
-    if [ "$MIHOMO_INTEGRATED" = "true" ] && grep -q "CONFIG_PACKAGE_luci-app-openclash=y" .config 2>/dev/null; then
+    # --- 小巧思1: OpenClash 预设配置 + 面板更新 + rc.local ---
+    if grep -q "CONFIG_PACKAGE_luci-app-openclash=y" .config 2>/dev/null; then
         echo ""
-        echo "🔧 小巧思1: mihomo 已集成且 luci-app-openclash 已启用"
+        echo "🔧 小巧思1: luci-app-openclash 已启用"
 
         # 写入 OpenClash 默认 UCI 配置
         local OPENCLASH_CONFIG="files/etc/config/openclash"
@@ -299,6 +299,7 @@ apply_tweaks() {
         set_uci_option "$OPENCLASH_CONFIG" small_flash_memory 1
         set_uci_option "$OPENCLASH_CONFIG" skip_proxy_address 1
         set_uci_option "$OPENCLASH_CONFIG" china_ip_route 1
+        set_uci_option "$OPENCLASH_CONFIG" enable_redirect_dns 1
         set_uci_option "$OPENCLASH_CONFIG" en_mode fake-ip-mix
         set_uci_option "$OPENCLASH_CONFIG" operation_mode fake-ip-mix
 
@@ -319,6 +320,7 @@ apply_tweaks() {
         echo "   - 小闪存模式: 开启"
         echo "   - 绕过服务器地址: 开启"
         echo "   - 绕过中国大陆 IP: 开启"
+        echo "   - 本地 DNS 劫持: Dnsmasq 转发"
         echo "   - 运行模式: Fake-IP + TUN 混合"
         echo "   - TCP 并发: 开启"
         echo "   - 统一延迟: 开启"
@@ -362,23 +364,11 @@ apply_tweaks() {
             rm -f /tmp/metacubexd.tgz
         fi
 
-        # 下载预设 mihomo 配置文件
-        local CONFIG_GIST_URL="https://gist.github.com/cuddly-guacamole/70940f1c6c1b1bbee87e66fc04aacd39/raw/config.yaml"
-        local CONFIG_DIR="files/etc/openclash/config"
-        echo ""
-        echo "📥 下载预设 mihomo 配置文件..."
-        mkdir -p "$CONFIG_DIR"
-        if wget -q -O "$CONFIG_DIR/config.yaml" "$CONFIG_GIST_URL"; then
-            echo "✅ 预设配置文件已写入: $CONFIG_DIR/config.yaml"
-        else
-            echo "⚠️ mihomo 配置文件下载失败"
-            rm -f "$CONFIG_DIR/config.yaml"
-        fi
-
-        # 写入 rc.local: 开机自动复制内核到 /tmp
-        mkdir -p files/etc
-        if [ ! -f files/etc/rc.local ]; then
-            cat > files/etc/rc.local << 'RCEOF'
+        # 写入 rc.local: 开机自动复制内核到 /tmp (仅 mihomo 已集成时)
+        if [ "$MIHOMO_INTEGRATED" = "true" ]; then
+            mkdir -p files/etc
+            if [ ! -f files/etc/rc.local ]; then
+                cat > files/etc/rc.local << 'RCEOF'
 #!/bin/sh
 # OpenWrt rc.local - executed at boot
 
@@ -392,10 +382,10 @@ fi
 
 exit 0
 RCEOF
-            chmod 755 files/etc/rc.local
-        else
-            if ! grep -q "small_flash_memory" files/etc/rc.local 2>/dev/null; then
-                sed -i '/^exit 0/i\
+                chmod 755 files/etc/rc.local
+            else
+                if ! grep -q "small_flash_memory" files/etc/rc.local 2>/dev/null; then
+                    sed -i '/^exit 0/i\
 # 小巧思: 小闪存模式下自动复制 mihomo 内核到 /tmp\
 if [ -f /etc/openclash/core/clash_meta ]; then\
     if uci -q get openclash.config.small_flash_memory | grep -q '\''1'\''; then\
@@ -403,11 +393,12 @@ if [ -f /etc/openclash/core/clash_meta ]; then\
         cp /etc/openclash/core/clash_meta /tmp/etc/openclash/core/\
     fi\
 fi' files/etc/rc.local
+                fi
             fi
+            echo "✅ rc.local 已写入 (开机自动复制内核到 /tmp)"
         fi
-        echo "✅ rc.local 已写入 (开机自动复制内核到 /tmp)"
     else
-        echo "⏭️ mihomo 未集成或 luci-app-openclash 未启用，跳过 OpenClash 预设"
+        echo "⏭️ luci-app-openclash 未启用，跳过 OpenClash 预设"
     fi
 
     # --- 小巧思2: 写入预设 AdGuardHome 配置文件 ---
