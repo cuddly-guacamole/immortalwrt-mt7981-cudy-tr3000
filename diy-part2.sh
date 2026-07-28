@@ -49,6 +49,9 @@ ENABLE_MIHOMO="${ENABLE_MIHOMO:-false}"
 ENABLE_ADGUARDHOME="${ENABLE_ADGUARDHOME:-false}"
 ENABLE_TWEAKS="${ENABLE_TWEAKS:-false}"
 
+MIHOMO_INTEGRATED=false
+ADGUARDHOME_INTEGRATED=false
+
 echo "=========================================="
 echo "📋 集成开关状态："
 echo "   集成 mihomo: ${ENABLE_MIHOMO}"
@@ -130,7 +133,7 @@ integrate_mihomo() {
     echo "📥 下载 mihomo: ${VERSION}"
     echo "   URL: $DOWNLOAD_URL"
     
-    local KERNEL_DOWNLOAD_SUCCESS=false
+    MIHOMO_INTEGRATED=false
     
     if wget -q -O /tmp/mihomo.gz "$DOWNLOAD_URL"; then
         gunzip -c /tmp/mihomo.gz > "$KERNEL_PATH"
@@ -139,7 +142,7 @@ integrate_mihomo() {
         echo "✅ mihomo 内核已集成到: $KERNEL_PATH"
         ls -lh "$KERNEL_PATH"
         rm -f /tmp/mihomo.gz
-        KERNEL_DOWNLOAD_SUCCESS=true
+        MIHOMO_INTEGRATED=true
     else
         echo "⚠️ 下载失败，尝试回退到 ${FALLBACK_TAG}..."
         local FALLBACK_URL="https://github.com/MetaCubeX/mihomo/releases/download/${FALLBACK_TAG}/mihomo-linux-arm64-${FALLBACK_TAG}.gz"
@@ -151,12 +154,12 @@ integrate_mihomo() {
             echo "✅ 回退到 ${FALLBACK_TAG} 下载成功"
             ls -lh "$KERNEL_PATH"
             rm -f /tmp/mihomo.gz
-            KERNEL_DOWNLOAD_SUCCESS=true
+            MIHOMO_INTEGRATED=true
             VERSION="${FALLBACK_TAG} (回退)"
         else
             echo "❌ mihomo 内核下载失败"
             echo "   → 用户可在 OpenClash 中手动上传或在线下载内核"
-            KERNEL_DOWNLOAD_SUCCESS=false
+            MIHOMO_INTEGRATED=false
         fi
     fi
 
@@ -165,7 +168,7 @@ integrate_mihomo() {
     echo "✅ 集成完成"
     echo ""
     
-    if [ "$KERNEL_DOWNLOAD_SUCCESS" = "true" ]; then
+    if [ "$MIHOMO_INTEGRATED" = "true" ]; then
         echo "   - mihomo 内核: 已集成 ✅"
         echo "   - 内核路径: $KERNEL_PATH"
         echo "   - 内核版本: ${VERSION}"
@@ -190,12 +193,18 @@ integrate_adguardhome() {
     echo ""
     echo "🔍 检测 .config 中 CONFIG_PACKAGE_adguardhome 状态..."
     
+    ADGUARDHOME_INTEGRATED=false
+    
     if grep -q "CONFIG_PACKAGE_adguardhome=y" .config; then
         echo "✅ 检测到官方源提供的 adguardhome 包已启用"
         echo "   → 跳过压缩版集成"
+        ADGUARDHOME_INTEGRATED=true
         echo ""
         echo "💡 如果要使用压缩版，请在 .config 中确保："
         echo "   CONFIG_PACKAGE_adguardhome is not set"
+        echo ""
+        echo "=========================================="
+        echo "✅ AdGuardHome 集成完成 (官方包)"
         echo "=========================================="
         return 0
     fi
@@ -231,6 +240,7 @@ integrate_adguardhome() {
         chmod 755 files/usr/bin/AdGuardHome/AdGuardHome
         
         echo "✅ 压缩版二进制已放到: files/usr/bin/AdGuardHome/AdGuardHome"
+        ADGUARDHOME_INTEGRATED=true
         
         rm -f /tmp/AdGuardHome.tar.gz
         rm -rf /tmp/AdGuardHome
@@ -252,12 +262,13 @@ integrate_adguardhome() {
             
             echo "✅ 回退到 ${FALLBACK_VERSION} 下载成功"
             echo "✅ 压缩版二进制已放到: files/usr/bin/AdGuardHome/AdGuardHome"
+            ADGUARDHOME_INTEGRATED=true
             
             rm -f /tmp/AdGuardHome.tar.gz
             rm -rf /tmp/AdGuardHome
         else
             echo "❌ AdGuardHome 二进制下载失败"
-            return 1
+            echo "   → 用户可手动上传 AdGuardHome 二进制"
         fi
     fi
 
@@ -283,35 +294,58 @@ apply_tweaks() {
     echo "=========================================="
 
     # --- 小巧思1: 开机自动复制 mihomo 内核到 /tmp ---
-    if [ "$ENABLE_MIHOMO" = "true" ]; then
+    if [ "$MIHOMO_INTEGRATED" = "true" ]; then
         echo ""
-        echo "🔧 小巧思1: 写入 rc.local 实现开机自动复制 mihomo 内核到内存"
+        echo "🔧 小巧思1: mihomo 内核已集成，写入 rc.local (运行时检查小闪存模式)"
         mkdir -p files/etc
         if [ ! -f files/etc/rc.local ]; then
             cat > files/etc/rc.local << 'RCEOF'
 #!/bin/sh
 # OpenWrt rc.local - executed at boot
 
-mkdir -p /tmp/etc/openclash/core
-cp /etc/openclash/core/clash_meta /tmp/etc/openclash/core/
+# 小巧思: OpenClash 小闪存模式下自动复制内核到 /tmp
+if [ -f /etc/config/openclash ] && [ -f /etc/openclash/core/clash_meta ]; then
+    if uci -q get openclash.config.small_flash_memory | grep -q '1'; then
+        mkdir -p /tmp/etc/openclash/core
+        cp /etc/openclash/core/clash_meta /tmp/etc/openclash/core/
+        # 延迟启动小于5秒则调整为5秒
+        DELAY=$(uci -q get openclash.config.delay_start)
+        if [ -n "$DELAY" ] && [ "$DELAY" -lt 5 ] 2>/dev/null; then
+            uci set openclash.config.delay_start='5'
+            uci commit openclash
+        fi
+    fi
+fi
 
 exit 0
 RCEOF
             chmod 755 files/etc/rc.local
         else
-            if ! grep -q "clash_meta" files/etc/rc.local 2>/dev/null; then
-                sed -i '/^exit 0/i mkdir -p /tmp/etc/openclash/core\ncp /etc/openclash/core/clash_meta /tmp/etc/openclash/core/' files/etc/rc.local
+            if ! grep -q "small_flash_memory" files/etc/rc.local 2>/dev/null; then
+                sed -i '/^exit 0/i\
+# 小巧思: OpenClash 小闪存模式下自动复制内核到 /tmp\
+if [ -f /etc/config/openclash ] \&\& [ -f /etc/openclash/core/clash_meta ]; then\
+    if uci -q get openclash.config.small_flash_memory | grep -q '\''1'\''; then\
+        mkdir -p /tmp/etc/openclash/core\
+        cp /etc/openclash/core/clash_meta /tmp/etc/openclash/core/\
+        DELAY=$(uci -q get openclash.config.delay_start)\
+        if [ -n "$DELAY" ] \&\& [ "$DELAY" -lt 5 ] 2>/dev/null; then\
+            uci set openclash.config.delay_start='\''5'\''\
+            uci commit openclash\
+        fi\
+    fi\
+fi' files/etc/rc.local
             fi
         fi
-        echo "✅ 已写入 rc.local，开机将自动复制 mihomo 内核到 /tmp"
+        echo "✅ 已写入 rc.local (开机时检查小闪存模式后复制内核，延迟启动<5s调整为5s)"
     else
-        echo "⏭️ mihomo 未启用，跳过开机复制内核"
+        echo "⏭️ mihomo 内核未集成成功，跳过"
     fi
 
     # --- 小巧思2: 写入预设 AdGuardHome 配置文件 ---
-    if grep -q "CONFIG_PACKAGE_luci-app-adguardhome=y" .config 2>/dev/null; then
+    if [ "$ADGUARDHOME_INTEGRATED" = "true" ] && grep -q "CONFIG_PACKAGE_luci-app-adguardhome=y" .config 2>/dev/null; then
         echo ""
-        echo "🔧 小巧思2: 检测到 luci-app-adguardhome 已启用，从 Gist 下载预设配置文件"
+        echo "🔧 小巧思2: AdGuardHome 内核已集成且 luci-app-adguardhome 已启用，从 Gist 下载预设配置文件"
         mkdir -p files/etc
 
         local GIST_URL="https://gist.github.com/cuddly-guacamole/dd77ff71ab181a5ea228d25bc728a6b6/raw/AdGuardHome.yaml"
@@ -321,7 +355,7 @@ RCEOF
             echo "❌ 从 Gist 下载配置文件失败"
         fi
     else
-        echo "⏭️ luci-app-adguardhome 未启用，跳过预设配置文件"
+        echo "⏭️ AdGuardHome 内核未集成或 luci-app-adguardhome 未启用，跳过预设配置文件"
     fi
 
     echo ""
@@ -340,10 +374,10 @@ echo ""
 echo "🚀 开始执行集成任务..."
 echo ""
 
-if [ "$ENABLE_MIHOMO" = "true" ]; then
+if [ "$ENABLE_MIHOMO" = "true" ] && grep -q "CONFIG_PACKAGE_luci-app-openclash=y" .config 2>/dev/null; then
     integrate_mihomo
 else
-    echo "⏭️ 跳过 mihomo 内核集成 (ENABLE_MIHOMO=false)"
+    echo "⏭️ 跳过 mihomo 内核集成 (需 ENABLE_MIHOMO=true 且 luci-app-openclash=y)"
 fi
 
 if [ "$ENABLE_ADGUARDHOME" = "true" ]; then
@@ -361,4 +395,8 @@ fi
 echo ""
 echo "=========================================="
 echo "✅ 所有集成任务完成!"
+echo ""
+echo "📋 最终状态："
+echo "   mihomo 内核:       $([ "$MIHOMO_INTEGRATED" = "true" ] && echo '已集成 ✅' || echo '未集成')"
+echo "   AdGuardHome 内核:  $([ "$ADGUARDHOME_INTEGRATED" = "true" ] && echo '已集成 ✅' || echo '未集成')"
 echo "=========================================="
