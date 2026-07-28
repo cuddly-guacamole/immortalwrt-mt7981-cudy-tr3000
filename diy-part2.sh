@@ -47,12 +47,13 @@ sed -i -e '/^IMG_PREFIX:=/i BUILD_DATE := $(shell date +%Y%m%d)' \
 # ============================================================
 ENABLE_MIHOMO="${ENABLE_MIHOMO:-false}"
 ENABLE_ADGUARDHOME="${ENABLE_ADGUARDHOME:-false}"
-ENABLE_ADGUARDHOME_CONFIG="${ENABLE_ADGUARDHOME_CONFIG:-false}"
+ENABLE_TWEAKS="${ENABLE_TWEAKS:-false}"
 
 echo "=========================================="
 echo "📋 集成开关状态："
 echo "   集成 mihomo: ${ENABLE_MIHOMO}"
 echo "   集成 AdGuardHome: ${ENABLE_ADGUARDHOME}"
+echo "   小巧思: ${ENABLE_TWEAKS}"
 echo "=========================================="
 
 # ============================================================
@@ -90,16 +91,41 @@ integrate_mihomo() {
     
     mkdir -p files/etc/openclash/core
     local KERNEL_PATH="files/etc/openclash/core/clash_meta"
+    local FALLBACK_TAG="v1.19.29"
+    local DOWNLOAD_URL=""
+    local VERSION=""
     
-    # 获取最新版本
-    local VERSION=$(get_latest_tag "MetaCubeX/mihomo")
-    if [ -z "$VERSION" ]; then
-        VERSION="v1.19.29"
-        echo "⚠️ 使用默认版本: ${VERSION}" >&2
+    # 优先级1: Alpha 预览版 (动态获取含短哈希的文件名)
+    echo "🔍 [1/3] 尝试 Alpha 预览版..."
+    local ALPHA_API="https://api.github.com/repos/MetaCubeX/mihomo/releases/tags/Prerelease-Alpha"
+    local ALPHA_FILE=$(wget -q -O- "$ALPHA_API" 2>/dev/null | \
+        grep -o '"name": *"mihomo-linux-arm64-alpha-[a-f0-9]*\.gz"' | \
+        grep -o 'mihomo-linux-arm64-alpha-[a-f0-9]*\.gz')
+    
+    if [ -n "$ALPHA_FILE" ]; then
+        DOWNLOAD_URL="https://github.com/MetaCubeX/mihomo/releases/download/Prerelease-Alpha/${ALPHA_FILE}"
+        VERSION="Alpha"
+        echo "✅ 获取到 Alpha 文件名: ${ALPHA_FILE}"
+    else
+        echo "⚠️ Alpha 版获取失败，尝试正式版..."
+        
+        # 优先级2: 正式版 (API获取最新tag)
+        echo "🔍 [2/3] 尝试正式版..."
+        local STABLE_TAG=$(get_latest_tag "MetaCubeX/mihomo")
+        
+        if [ -n "$STABLE_TAG" ]; then
+            DOWNLOAD_URL="https://github.com/MetaCubeX/mihomo/releases/download/${STABLE_TAG}/mihomo-linux-arm64-${STABLE_TAG}.gz"
+            VERSION="${STABLE_TAG}"
+            echo "✅ 获取到正式版: ${STABLE_TAG}"
+        else
+            echo "⚠️ 正式版获取失败，回退到硬编码版本..."
+            
+            # 优先级3: 硬编码回退版本
+            echo "🔍 [3/3] 回退到 ${FALLBACK_TAG}"
+            DOWNLOAD_URL="https://github.com/MetaCubeX/mihomo/releases/download/${FALLBACK_TAG}/mihomo-linux-arm64-${FALLBACK_TAG}.gz"
+            VERSION="${FALLBACK_TAG} (回退)"
+        fi
     fi
-    
-    local FILE_NAME="mihomo-linux-arm64-${VERSION}.gz"
-    local DOWNLOAD_URL="https://github.com/MetaCubeX/mihomo/releases/download/${VERSION}/${FILE_NAME}"
     
     echo "📥 下载 mihomo: ${VERSION}"
     echo "   URL: $DOWNLOAD_URL"
@@ -115,29 +141,24 @@ integrate_mihomo() {
         rm -f /tmp/mihomo.gz
         KERNEL_DOWNLOAD_SUCCESS=true
     else
-        echo "⚠️ ${VERSION} 下载失败，尝试回退到 v1.19.29..."
-        
-        local FALLBACK_VERSION="v1.19.29"
-        local FALLBACK_FILE="mihomo-linux-arm64-${FALLBACK_VERSION}.gz"
-        local FALLBACK_URL="https://github.com/MetaCubeX/mihomo/releases/download/${FALLBACK_VERSION}/${FALLBACK_FILE}"
+        echo "⚠️ 下载失败，尝试回退到 ${FALLBACK_TAG}..."
+        local FALLBACK_URL="https://github.com/MetaCubeX/mihomo/releases/download/${FALLBACK_TAG}/mihomo-linux-arm64-${FALLBACK_TAG}.gz"
         
         if wget -q -O /tmp/mihomo.gz "$FALLBACK_URL"; then
             gunzip -c /tmp/mihomo.gz > "$KERNEL_PATH"
             chmod 755 "$KERNEL_PATH"
             upx --best --lzma "$KERNEL_PATH" 2>/dev/null || true
-            echo "✅ 回退到 ${FALLBACK_VERSION} 下载成功"
+            echo "✅ 回退到 ${FALLBACK_TAG} 下载成功"
             ls -lh "$KERNEL_PATH"
             rm -f /tmp/mihomo.gz
             KERNEL_DOWNLOAD_SUCCESS=true
-            VERSION="${FALLBACK_VERSION}"
+            VERSION="${FALLBACK_TAG} (回退)"
         else
             echo "❌ mihomo 内核下载失败"
             echo "   → 用户可在 OpenClash 中手动上传或在线下载内核"
             KERNEL_DOWNLOAD_SUCCESS=false
         fi
     fi
-
-
 
     echo ""
     echo "=========================================="
@@ -149,7 +170,7 @@ integrate_mihomo() {
         echo "   - 内核路径: $KERNEL_PATH"
         echo "   - 内核版本: ${VERSION}"
     else
-        echo "   - mihomo 内核: 未集成（可选，用户可手动上传）"
+        echo "   - mihomo 内核: 未集成（用户可手动上传）"
     fi
     echo "=========================================="
     return 0
@@ -243,280 +264,69 @@ integrate_adguardhome() {
 
 
     echo ""
-    echo "🔍 检查是否集成预设配置文件..."
-
-    if [ "$ENABLE_ADGUARDHOME_CONFIG" = "true" ]; then
-        echo "✅ 用户已勾选「集成预设 AdGuardHome 配置文件」"
-        echo "📝 写入 /etc/AdGuardHome.yaml ..."
-        
-        mkdir -p files/etc
-        
-        cat > files/etc/AdGuardHome.yaml << 'EOF'
-http:
-  pprof:
-    port: 6060
-    enabled: false
-  doh:
-    routes:
-      - GET /dns-query
-      - POST /dns-query
-      - GET /dns-query/{ClientID}
-      - POST /dns-query/{ClientID}
-    insecure_enabled: false
-  address: 0.0.0.0:3000
-  session_ttl: 30d
-users:
-  - name: root
-    password: $2y$10$PVhuB.icsC0Jl5Q.8twXwOOVPX0oxdmmilkkkjCXkIBki0rvBatMa
-auth_attempts: 5
-block_auth_min: 15
-http_proxy: ""
-language: ""
-theme: auto
-dns:
-  bind_hosts:
-    - 0.0.0.0
-  port: 5553
-  anonymize_client_ip: false
-  ratelimit: 0
-  ratelimit_subnet_len_ipv4: 24
-  ratelimit_subnet_len_ipv6: 56
-  ratelimit_whitelist: []
-  refuse_any: false
-  upstream_dns:
-    - https://dns.google/dns-query
-    - https://cloudflare-dns.com/dns-query
-    - https://3v9q453gj5.cloudflare-gateway.com/dns-query
-  upstream_dns_file: ""
-  bootstrap_dns:
-    - 1.1.1.1
-    - 119.29.29.29
-    - 223.5.5.5
-  fallback_dns:
-    - https://dns.alidns.com/dns-query
-    - https://doh.pub/dns-query
-  upstream_mode: load_balance
-  fastest_timeout: 1s
-  allowed_clients: []
-  disallowed_clients: []
-  blocked_hosts:
-    - version.bind
-    - id.server
-    - hostname.bind
-  trusted_proxies:
-    - 127.0.0.0/8
-    - ::1/128
-  cache_enabled: true
-  cache_size: 4194304
-  cache_ttl_min: 300
-  cache_ttl_max: 86400
-  cache_optimistic: true
-  cache_optimistic_answer_ttl: 30s
-  cache_optimistic_max_age: 12h
-  bogus_nxdomain: []
-  aaaa_disabled: false
-  enable_dnssec: true
-  edns_client_subnet:
-    custom_ip: ""
-    enabled: false
-    use_custom: false
-  max_goroutines: 300
-  handle_ddr: true
-  ipset: []
-  ipset_file: ""
-  bootstrap_prefer_ipv6: false
-  upstream_timeout: 10s
-  private_networks: []
-  use_private_ptr_resolvers: true
-  local_ptr_upstreams: []
-  use_dns64: false
-  dns64_prefixes: []
-  serve_http3: false
-  use_http3_upstreams: false
-  serve_plain_dns: true
-  hostsfile_enabled: true
-  pending_requests:
-    enabled: true
-tls:
-  enabled: false
-  server_name: ""
-  force_https: false
-  port_https: 443
-  port_dns_over_tls: 853
-  port_dns_over_quic: 853
-  port_dnscrypt: 0
-  dnscrypt_config_file: ""
-  certificate_chain: ""
-  private_key: ""
-  certificate_path: ""
-  private_key_path: ""
-  strict_sni_check: false
-querylog:
-  dir_path: ""
-  ignored: []
-  interval: 1d
-  size_memory: 1000
-  enabled: false
-  ignored_enabled: false
-  file_enabled: true
-statistics:
-  dir_path: ""
-  ignored: []
-  interval: 1d
-  enabled: true
-  ignored_enabled: false
-filters:
-  - enabled: true
-    url: https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt
-    name: AdGuard DNS filter
-    id: 1
-  - enabled: true
-    url: https://adaway.org/hosts.txt
-    name: AdAway Default Blocklist
-    id: 2
-  - enabled: false
-    url: https://cdn.jsdelivr.net/gh/neoFelhz/neohosts@gh-pages/full/hosts.txt
-    name: neoHosts full
-    id: 3
-  - enabled: false
-    url: https://cdn.jsdelivr.net/gh/neoFelhz/neohosts@gh-pages/basic/hosts.txt
-    name: neoHosts basic
-    id: 4
-  - enabled: false
-    url: http://sbc.io/hosts/hosts
-    name: StevenBlack host basic
-    id: 5
-  - enabled: false
-    url: http://sbc.io/hosts/alternates/fakenews-gambling-porn-social/hosts
-    name: StevenBlack host + fakenews + gambling + porn + social
-    id: 6
-  - enabled: false
-    url: https://cdn.jsdelivr.net/gh/217heidai/adblockfilters@main/rules/adblockdns.txt
-    name: 217heidai AdBlock DNS Filters
-    id: 7
-whitelist_filters: []
-user_rules: []
-dhcp:
-  enabled: false
-  interface_name: ""
-  local_domain_name: lan
-  dhcpv4:
-    gateway_ip: ""
-    subnet_mask: ""
-    range_start: ""
-    range_end: ""
-    lease_duration: 86400
-    icmp_timeout_msec: 1000
-    options: []
-  dhcpv6:
-    range_start: ""
-    lease_duration: 86400
-    ra_slaac_only: false
-    ra_allow_slaac: false
-filtering:
-  blocking_ipv4: ""
-  blocking_ipv6: ""
-  blocked_services:
-    schedule:
-      time_zone: UTC
-    ids: []
-  protection_disabled_until: null
-  safe_search:
-    enabled: false
-    bing: true
-    duckduckgo: true
-    ecosia: true
-    google: true
-    pixabay: true
-    yandex: true
-    youtube: true
-  blocking_mode: nxdomain
-  parental_block_host: family-block.dns.adguard.com
-  safebrowsing_block_host: standard-block.dns.adguard.com
-  rewrites:
-    - domain: dns.google
-      answer: 8.8.8.8
-      enabled: true
-    - domain: dns.google
-      answer: 8.8.4.4
-      enabled: true
-    - domain: cloudflare-dns.com
-      answer: 104.16.249.249
-      enabled: true
-    - domain: cloudflare-dns.com
-      answer: 104.16.248.249
-      enabled: true
-    - domain: dns.alidns.com
-      answer: 223.5.5.5
-      enabled: true
-    - domain: dns.alidns.com
-      answer: 223.6.6.6
-      enabled: true
-    - domain: doh.pub
-      answer: 120.53.53.53
-      enabled: true
-    - domain: doh.pub
-      answer: 1.12.12.12
-      enabled: true
-    - domain: 3v9q453gj5.cloudflare-gateway.com
-      answer: 162.159.36.5
-      enabled: true
-    - domain: 3v9q453gj5.cloudflare-gateway.com
-      answer: 162.159.36.20
-      enabled: true
-  safe_fs_patterns:
-    - /usr/bin/AdGuardHome/data/userfilters/*
-  max_http_size: 256MB
-  safebrowsing_cache_size: 1048576
-  safesearch_cache_size: 1048576
-  parental_cache_size: 1048576
-  cache_time: 30
-  filters_update_interval: 24
-  blocked_response_ttl: 10
-  filtering_enabled: true
-  rewrites_enabled: true
-  parental_enabled: false
-  safebrowsing_enabled: false
-  protection_enabled: true
-clients:
-  runtime_sources:
-    whois: true
-    arp: true
-    rdns: false
-    dhcp: true
-    hosts: true
-  persistent: []
-log:
-  enabled: true
-  file: ""
-  max_backups: 0
-  max_size: 100
-  max_age: 3
-  compress: false
-  local_time: false
-  verbose: false
-os:
-  group: ""
-  user: ""
-  rlimit_nofile: 0
-schema_version: 34
-EOF
-
-        echo "✅ 预设配置文件已写入: files/etc/AdGuardHome.yaml"
-    else
-        echo "⏭️ 用户未勾选「集成预设 AdGuardHome 配置文件」，跳过"
-    fi
-
-    echo ""
     echo "=========================================="
     echo "✅ AdGuardHome 集成完成"
     echo "   版本: ${VERSION}"
     echo "   路径: files/usr/bin/AdGuardHome/AdGuardHome"
-    if [ "$ENABLE_ADGUARDHOME_CONFIG" = "true" ]; then
-        echo "   配置文件: files/etc/AdGuardHome.yaml ✅"
+    echo "=========================================="
+    return 0
+}
+
+
+
+# ============================================================
+# 函数3: 小巧思 (开机复制mihomo内核到内存 + AdGuardHome预设配置)
+# ============================================================
+apply_tweaks() {
+    echo "=========================================="
+    echo "✨ 开始应用小巧思"
+    echo "=========================================="
+
+    # --- 小巧思1: 开机自动复制 mihomo 内核到 /tmp ---
+    if [ "$ENABLE_MIHOMO" = "true" ]; then
+        echo ""
+        echo "🔧 小巧思1: 写入 rc.local 实现开机自动复制 mihomo 内核到内存"
+        mkdir -p files/etc
+        if [ ! -f files/etc/rc.local ]; then
+            cat > files/etc/rc.local << 'RCEOF'
+#!/bin/sh
+# OpenWrt rc.local - executed at boot
+
+mkdir -p /tmp/etc/openclash/core
+cp /etc/openclash/core/clash_meta /tmp/etc/openclash/core/
+
+exit 0
+RCEOF
+            chmod 755 files/etc/rc.local
+        else
+            if ! grep -q "clash_meta" files/etc/rc.local 2>/dev/null; then
+                sed -i '/^exit 0/i mkdir -p /tmp/etc/openclash/core\ncp /etc/openclash/core/clash_meta /tmp/etc/openclash/core/' files/etc/rc.local
+            fi
+        fi
+        echo "✅ 已写入 rc.local，开机将自动复制 mihomo 内核到 /tmp"
     else
-        echo "   配置文件: 未预设"
+        echo "⏭️ mihomo 未启用，跳过开机复制内核"
     fi
+
+    # --- 小巧思2: 写入预设 AdGuardHome 配置文件 ---
+    if grep -q "CONFIG_PACKAGE_luci-app-adguardhome=y" .config 2>/dev/null; then
+        echo ""
+        echo "🔧 小巧思2: 检测到 luci-app-adguardhome 已启用，从 Gist 下载预设配置文件"
+        mkdir -p files/etc
+
+        local GIST_URL="https://gist.github.com/cuddly-guacamole/dd77ff71ab181a5ea228d25bc728a6b6/raw/AdGuardHome.yaml"
+        if wget -q -O files/etc/AdGuardHome.yaml "$GIST_URL"; then
+            echo "✅ 预设配置文件已写入: files/etc/AdGuardHome.yaml"
+        else
+            echo "❌ 从 Gist 下载配置文件失败"
+        fi
+    else
+        echo "⏭️ luci-app-adguardhome 未启用，跳过预设配置文件"
+    fi
+
+    echo ""
+    echo "=========================================="
+    echo "✅ 小巧思应用完成"
     echo "=========================================="
     return 0
 }
@@ -540,6 +350,12 @@ if [ "$ENABLE_ADGUARDHOME" = "true" ]; then
     integrate_adguardhome
 else
     echo "⏭️ 跳过 AdGuardHome 集成 (ENABLE_ADGUARDHOME=false)"
+fi
+
+if [ "$ENABLE_TWEAKS" = "true" ]; then
+    apply_tweaks
+else
+    echo "⏭️ 跳过小巧思 (ENABLE_TWEAKS=false)"
 fi
 
 echo ""
