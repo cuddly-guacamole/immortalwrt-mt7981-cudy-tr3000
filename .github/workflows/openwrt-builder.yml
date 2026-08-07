@@ -54,6 +54,11 @@ on:
         required: false
         type: boolean
         default: false
+      enable_easytier:
+        description: '是否集成 easytier 内核 (CONFIG_PACKAGE_easytier=y时会自动跳过避免冲突)'
+        required: false
+        type: boolean
+        default: false
       enable_tweaks:
         description: '小巧思: OpenClash预设+开机复制内核+AdGuardHome配置+UPnP启用'
         required: false
@@ -76,6 +81,7 @@ env:
   
   ENABLE_MIHOMO: ${{ github.event.inputs.enable_mihomo || github.event.client_payload.enable_mihomo || false }}
   ENABLE_ADGUARDHOME: ${{ github.event.inputs.enable_adguardhome || github.event.client_payload.enable_adguardhome || false }}
+  ENABLE_EASYTIER: ${{ github.event.inputs.enable_easytier || github.event.client_payload.enable_easytier || false }}
   ENABLE_TWEAKS: ${{ github.event.inputs.enable_tweaks || github.event.client_payload.enable_tweaks || false }}
 
 jobs:
