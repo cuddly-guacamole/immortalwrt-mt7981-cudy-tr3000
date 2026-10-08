@@ -63,6 +63,11 @@ on:
         required: false
         type: boolean
         default: false
+      enable_apk:
+        description: '尝鲜: 用 APK 替代 opkg 作为包管理器 (25.12 官方默认)'
+        required: false
+        type: boolean
+        default: false
 
 env:
   DEVICE_INPUT: ${{ github.event.inputs.device || github.event.client_payload.device || 'all' }}
@@ -84,6 +89,7 @@ env:
   ENABLE_ADGUARDHOME: ${{ github.event.inputs.enable_adguardhome || github.event.client_payload.enable_adguardhome || false }}
   ENABLE_EASYTIER: ${{ github.event.inputs.enable_easytier || github.event.client_payload.enable_easytier || false }}
   ENABLE_TWEAKS: ${{ github.event.inputs.enable_tweaks || github.event.client_payload.enable_tweaks || false }}
+  ENABLE_APK: ${{ github.event.inputs.enable_apk || github.event.client_payload.enable_apk || false }}
 
 jobs:
   menuconfig:
@@ -200,6 +206,27 @@ jobs:
             cd openwrt && git checkout ${REPO_COMMIT}
           fi
           ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+
+      - name: 🛠️ 应用构建选项
+        run: |
+          # 需要改写 config/*.config 的开关集中在此处理, 位置在 ccache 缓存之前,
+          # 使缓存键、feeds 步骤、预检与编译循环都基于改写后的配置
+          if [ "${ENABLE_APK}" = "true" ]; then
+            echo "🔧 启用 APK 包管理器 (替换 opkg)"
+            for f in "$GITHUB_WORKSPACE"/config/*.config; do
+              sed -i -e 's/^# CONFIG_USE_APK is not set$/CONFIG_USE_APK=y/' \
+                     -e 's/^CONFIG_PACKAGE_opkg=y$/# CONFIG_PACKAGE_opkg is not set/' "$f"
+              grep -q '^CONFIG_PACKAGE_apk-openssl=y$' "$f" || echo 'CONFIG_PACKAGE_apk-openssl=y' >> "$f"
+            done
+            if grep -q '^CONFIG_USE_APK=y$' "$GITHUB_WORKSPACE"/config/*.config; then
+              echo "✅ 已切换为 APK 包管理器"
+            else
+              echo "❌ 未能写入 APK 开关, 请检查 config 文件中的 CONFIG_USE_APK 行"
+              exit 1
+            fi
+          else
+            echo "ℹ️ 使用配置中固定的包管理器 (opkg)"
+          fi
 
       - name: ⚙️ Setup ccache & DL cache
         uses: actions/cache@v4

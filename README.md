@@ -16,6 +16,20 @@
 
 ---
 
+## 包管理器 (opkg / apk)
+
+本仓库默认固定使用 **opkg**，与历史固件行为一致。
+
+上游 25.12 的 `CONFIG_USE_APK` 默认为 `y`，而配置中沿用了 24.10 的 `CONFIG_PACKAGE_opkg=y`。
+两者叠加会让 `make defconfig` 同时启用两个包管理器，因此配置里已显式写死 `# CONFIG_USE_APK is not set`。
+
+想尝鲜 APK（Alpine Package Keeper，25.12 官方默认）时，手动触发 `ImmortalWrt Builder` 并勾选
+**`enable_apk`** 即可 —— 工作流会在构建前改写配置，仓库里的配置文件不受影响，取消勾选即回到 opkg。
+
+> 注意：opkg 与 apk 的命令语法不同，且两者记录的已安装软件元数据不通用，切换后建议全新刷入而非保留配置升级。
+
+---
+
 ## 大分区 ubootmod 固件
 
 本仓库编译的 ubootmod 固件固定为 **112M** ubi 分区（`reg = <0x5c0000 0x7000000>`），由 `diy-part2.sh` 在编译时把上游默认值改回。
