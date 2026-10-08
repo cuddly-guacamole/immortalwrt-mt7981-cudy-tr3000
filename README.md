@@ -8,18 +8,19 @@
 
 ## immortalwrt 源码
 
-编译自 https://github.com/padavanonly/immortalwrt-mt798x-6.6 ，兼容 Cudy Tr3000 128M 新 flash
+编译自 https://github.com/chasey-dev/immortalwrt-mt798x-rebase 的 `25.12` 分支，兼容 Cudy Tr3000 128M 新 flash。
+
+该上游基于 ImmortalWrt 25.12（内核 6.12），移植了 MTK OpenWrt Feeds 的闭源无线驱动与硬件加速，内核跟随主线持续更新。
+
+> 此前使用的 `padavanonly/immortalwrt-mt798x-6.6` 内核冻结在 6.6.133 且不再同步上游，已切换。
 
 ---
 
 ## 大分区 ubootmod 固件
 
-本仓库默认编译的 ubootmod 固件为 112M 分区，若你想编译 122M 分区固件，请将 `diy-part2.sh` 中取消以下注释：
+上游 25.12 分支的 ubootmod 布局默认即为 122M 分区（`reg = <0x5c0000 0x7a40000>`），无需再手工修改设备树。
 
-```sh
-# set ubi to 122M
-# sed -i 's/reg = <0x5c0000 0x7000000>;/reg = <0x5c0000 0x7a40000>;/' target/linux/mediatek/dts/mt7981b-cudy-tr3000-v1-ubootmod.dts
-```
+> 旧版 24.10 上游默认为 112M，需按本文档历史版本手工 sed 扩容；该做法已不再需要。
 
 ---
 
@@ -37,19 +38,32 @@
 
 ## USB 供电控制
 
-上游的最新源码已经打开了默认供电，具体可以见这条 [commit](https://github.com/padavanonly/immortalwrt-mt798x-6.6/commit/86356f8a2f796e5808fda25ce3e3bf6b3cc3278e)
+25.12 上游设备树中 USB VBUS 已改为 `regulator-fixed`（`usb-vbus`，GPIO 9，`regulator-boot-on`），开机默认供电。
 
-若你想关闭 USB 供电执行命令
+> 旧版 24.10 上游通过 `gpio-export` 导出 `modem_power`，可用 `echo 0 > /sys/class/gpio/modem_power/value` 关闭供电。
+> 25.12 上游已移除该 gpio-export，上述命令不再适用。
 
-```bash
-echo 0 > /sys/class/gpio/modem_power/value
-```
+---
 
-恢复供电执行命令
+## 安全加固
 
-```bash
-echo 1 > /sys/class/gpio/modem_power/value
-```
+上游内核尚未包含 2026-09 公开的四组内核本地提权漏洞修复（完整修复需 6.6.157 / 6.12.109）。
+本仓库**不改动任何源码**，仅通过内核配置收窄攻击面：
+
+| 漏洞 | 触发前提 | 处理方式 |
+|---|---|---|
+| TUNderflow | 非特权 user namespace + TUN | `CONFIG_KERNEL_USER_NS` 关闭 |
+| PPPoEject | 非特权 user namespace + PPPoE | 同上 |
+| DirtyAH6 | 非特权 user namespace + IPsec AH | 同上（AH 本已关闭） |
+| DiagSpill | SCTP | `kmod-sctp` / `CONFIG_IP_SCTP` 本已关闭 |
+
+此外 `diy-part2.sh` 会向固件写入 rc.local 兜底：若内核仍带 USER_NS，则开机时将
+`user.max_user_namespaces` 置 0；内核已编译掉 USER_NS 时该文件不存在，静默跳过。
+
+关闭非特权 user namespace 不影响 OpenClash 的 TUN 模式与 PPPoE 拨号。
+
+构建时会在 `make defconfig` 之后自动校验上述配置是否真正生效：关键项未生效会直接中止
+构建，结果写入 Actions 的 Step Summary，可在编译前快速定位上游符号变动。
 
 ---
 
@@ -121,7 +135,9 @@ rm sing-box.tar.gz
 
 - [bl-mt798x-dhcpd](https://github.com/weekdaycare/bl-mt798x-dhcpd)
 - [bl-mt798x](https://github.com/hanwckf/bl-mt798x)
-- [immortalwrtwrt](https://github.com/padavanonly/immortalwrt-mt798x-6.6)
+- [immortalwrt-mt798x-rebase](https://github.com/chasey-dev/immortalwrt-mt798x-rebase)（当前上游）
+- [mtk-openwrt-feeds](https://github.com/mediatek/mtk-openwrt-feeds)
+- [immortalwrt-mt798x-6.6](https://github.com/padavanonly/immortalwrt-mt798x-6.6)（历史上游）
 - [P3TERX](https://github.com/P3TERX)
 - [Microsoft Azure](https://azure.microsoft.com)
 - [GitHub Actions](https://github.com/features/actions)
