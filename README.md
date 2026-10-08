@@ -18,21 +18,26 @@
 
 ## 大分区 ubootmod 固件
 
-上游 25.12 分支的 ubootmod 布局默认即为 122M 分区（`reg = <0x5c0000 0x7a40000>`），无需再手工修改设备树。
+本仓库编译的 ubootmod 固件固定为 **112M** ubi 分区（`reg = <0x5c0000 0x7000000>`），由 `diy-part2.sh` 在编译时把上游默认值改回。
 
-> 旧版 24.10 上游默认为 112M，需按本文档历史版本手工 sed 扩容；该做法已不再需要。
+上游 25.12（含官方 openwrt / immortalwrt）默认是 122M（`0x7a40000`），该值恰好占满整块 NAND 在 `0x5c0000` 之后的全部剩余空间（128MiB − 5.75MiB = 122.25MiB），没有留下坏块替换余量。112M 保留 10.25MiB 余量，并与历史固件分区布局保持一致 —— 部分 uboot 版本按 112M 布局构建，分区不一致会导致固件刷入失败。
+
+构建时会校验该替换是否生效，未生效会直接中止构建。
 
 ---
 
 ## DHCP uboot
 
-编译自 https://github.com/weekdaycare/bl-mt798x-dhcpd 感谢大佬开源，兼容新 flash
+本仓库固件按 ubootmod 布局编译，适配 https://github.com/Yuzhii0718/bl-mt798x-dhcpd （hanwckf `bl-mt798x` 的分支，支持 DHCP、带 Web UI 与多布局）。编译 uboot 时请选择 `VARIANT=ubootmod`。
 
 ![](/uboot.png)
 
-128M uboot 为三分区 uboot 支持原厂 ubi 大小 64MB，扩容 ubi 分区 112MB，最大 ubi 分区 122MB
+128M uboot 为三分区 uboot，支持原厂 ubi 大小 64MB，扩容 ubi 分区 112MB，最大 ubi 分区 122MB
 
 256M uboot 为单分区 uboot
+
+> 该 uboot 的 `ubootmod` 变体（`configs-fit/mt7981_cudy_tr3000-v1_defconfig`）未启用 MTK-NMBM，
+> 其 mtdparts 把 ubi 声明为「剩余全部空间」；固件侧按 112M 构建，与历史行为保持一致。
 
 ---
 
@@ -133,7 +138,8 @@ rm sing-box.tar.gz
 
 ## Credits
 
-- [bl-mt798x-dhcpd](https://github.com/weekdaycare/bl-mt798x-dhcpd)
+- [bl-mt798x-dhcpd (Yuzhii0718)](https://github.com/Yuzhii0718/bl-mt798x-dhcpd)
+- [bl-mt798x-dhcpd (weekdaycare)](https://github.com/weekdaycare/bl-mt798x-dhcpd)
 - [bl-mt798x](https://github.com/hanwckf/bl-mt798x)
 - [immortalwrt-mt798x-rebase](https://github.com/chasey-dev/immortalwrt-mt798x-rebase)（当前上游）
 - [mtk-openwrt-feeds](https://github.com/mediatek/mtk-openwrt-feeds)
