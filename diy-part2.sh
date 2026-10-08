@@ -11,7 +11,15 @@
 #
 
 # Modify default IP
-sed -i 's/192.168.6.1/192.168.10.1/g' package/base-files/files/bin/config_generate
+# 上游默认 LAN 网段随分支变化: 24.10 分支为 192.168.6.1, 25.12 分支为 192.168.1.1
+# 两种都替换, 并校验结果, 避免上游改默认值后静默失效
+sed -i -e 's/192\.168\.6\.1/192.168.10.1/g' -e 's/192\.168\.1\.1/192.168.10.1/g' \
+    package/base-files/files/bin/config_generate
+if grep -q '192\.168\.10\.1' package/base-files/files/bin/config_generate; then
+    echo "✅ 默认 LAN 网段已改为 192.168.10.1"
+else
+    echo "⚠️ 默认 LAN 网段替换未生效, 请检查上游 config_generate 结构"
+fi
 
 # Modify default theme
 #sed -i 's/luci-theme-bootstrap/luci-theme-argon/g' feeds/luci/collections/luci/Makefile
@@ -20,17 +28,24 @@ sed -i 's/192.168.6.1/192.168.10.1/g' package/base-files/files/bin/config_genera
 sed -i "/hostname='ImmortalWrt'/s/'ImmortalWrt'/'CUDY'/g" package/base-files/files/bin/config_generate
 
 # 修改 MTK WiFi 默认配置
-sed -i 's/ssid="ImmortalWrt-2.4G"/ssid="CUDY-2.4G"/g' package/mtk/applications/mtwifi-cfg/files/mtwifi.sh
-sed -i 's/ssid="ImmortalWrt-5G"/ssid="CUDY-5G"/g' package/mtk/applications/mtwifi-cfg/files/mtwifi.sh
+MTWIFI_SH="package/mtk/applications/mtwifi-cfg/files/mtwifi.sh"
+if [ -f "$MTWIFI_SH" ]; then
+    sed -i 's/ssid="ImmortalWrt-2.4G"/ssid="CUDY-2.4G"/g' "$MTWIFI_SH"
+    sed -i 's/ssid="ImmortalWrt-5G"/ssid="CUDY-5G"/g' "$MTWIFI_SH"
 
-# 修改默认国家码为 AU
-sed -i 's/set wireless.${dev}.country=CN/set wireless.${dev}.country=AU/g' package/mtk/applications/mtwifi-cfg/files/mtwifi.sh
+    # 修改默认国家码为 AU
+    sed -i 's/set wireless.${dev}.country=CN/set wireless.${dev}.country=AU/g' "$MTWIFI_SH"
 
-# 修改默认信道为 auto
-sed -i 's/channel="36"/channel="auto"/g' package/mtk/applications/mtwifi-cfg/files/mtwifi.sh
+    if grep -q 'ssid="CUDY-2.4G"' "$MTWIFI_SH" && grep -q 'country=AU' "$MTWIFI_SH"; then
+        echo "✅ MTK WiFi 默认 SSID / 国家码已修改"
+    else
+        echo "⚠️ MTK WiFi 默认值修改未完全生效, 请检查上游 mtwifi.sh 结构"
+    fi
+else
+    echo "⚠️ 未找到 $MTWIFI_SH, 跳过 MTK WiFi 默认值修改"
+fi
 
-# 临时解决Rust问题
-sed -i 's/ci-llvm=true/ci-llvm=false/g' feeds/packages/lang/rust/Makefile
+# 默认信道: 25.12 上游 mtwifi.sh 已使用 channel=auto, 无需再替换
 
 # 防御: 若 feeds 中自带 luci-app-openclash, 移除避免与 package/ 内克隆版本冲突
 # (此脚本在 feeds update/install 之后执行, 此时的移除才是有效的)
@@ -725,6 +740,44 @@ EOF
 
 
 # ============================================================
+# 安全加固: 关闭非特权 user namespace
+# 作为内核 CONFIG_KERNEL_USER_NS 关闭的兜底。若内核已编译掉 USER_NS,
+# /proc/sys/user/ 不存在, 此处静默跳过, 不产生启动报错。
+# ============================================================
+apply_security_hardening() {
+    echo ""
+    echo "🔒 应用安全加固: 关闭非特权 user namespace"
+
+    local RC_LOCAL="files/etc/rc.local"
+    local BLOCK='# security-hardening: 关闭非特权 user namespace, 阻断内核本地提权
+[ -w /proc/sys/user/max_user_namespaces ] && echo 0 > /proc/sys/user/max_user_namespaces'
+
+    mkdir -p files/etc
+
+    if [ ! -f "$RC_LOCAL" ]; then
+        printf '#!/bin/sh\n# OpenWrt rc.local - executed at boot\n\n%s\n\nexit 0\n' "$BLOCK" > "$RC_LOCAL"
+    elif ! grep -q "max_user_namespaces" "$RC_LOCAL"; then
+        if grep -q "^exit 0" "$RC_LOCAL"; then
+            awk -v block="$BLOCK" '
+                /^exit 0/ && !done { print block; done = 1 }
+                { print }
+            ' "$RC_LOCAL" > "$RC_LOCAL.tmp" && mv "$RC_LOCAL.tmp" "$RC_LOCAL"
+        else
+            printf '\n%s\n\nexit 0\n' "$BLOCK" >> "$RC_LOCAL"
+        fi
+    fi
+
+    chmod 755 "$RC_LOCAL"
+
+    if grep -q "max_user_namespaces" "$RC_LOCAL"; then
+        echo "✅ rc.local 已包含 user namespace 加固"
+    else
+        echo "⚠️ user namespace 加固写入失败"
+    fi
+}
+
+
+# ============================================================
 # 主执行流程: 依次调用各个函数
 # ============================================================
 echo ""
@@ -760,6 +813,8 @@ if [ "$ENABLE_TWEAKS" = "true" ]; then
 else
     echo "⏭️ 跳过小巧思 (ENABLE_TWEAKS=false)"
 fi
+
+apply_security_hardening
 
 echo ""
 echo "=========================================="
