@@ -579,7 +579,9 @@ apply_tweaks() {
 
         set_uci_option "$OPENCLASH_CONFIG" default_dashboard zashboard
         set_uci_option "$OPENCLASH_CONFIG" delay_start 5
-        set_uci_option "$OPENCLASH_CONFIG" small_flash_memory 1
+        # 小闪存模式会把 mihomo 内核复制到 /tmp 常驻内存 (十几 MB),
+        # 收益仅在更新内核时体现, 而代价是持续占用 RAM, 故关闭
+        set_uci_option "$OPENCLASH_CONFIG" small_flash_memory 0
         set_uci_option "$OPENCLASH_CONFIG" skip_proxy_address 1
         set_uci_option "$OPENCLASH_CONFIG" china_ip_route 1
         set_uci_option "$OPENCLASH_CONFIG" enable_redirect_dns 1
@@ -595,7 +597,8 @@ apply_tweaks() {
         set_uci_option "$OPENCLASH_CONFIG" enable_meta_sniffer_pure_ip 1
         set_uci_option "$OPENCLASH_CONFIG" smart_prefer_asn 1
         set_uci_option "$OPENCLASH_CONFIG" enable_respect_rules 1
-        set_uci_option "$OPENCLASH_CONFIG" store_fakeip 1
+        # fakeip 缓存不持久化, 避免周期性写闪存 (重启后重建映射)
+        set_uci_option "$OPENCLASH_CONFIG" store_fakeip 0
 
         echo "✅ OpenClash 预设配置已写入:"
         echo "   - 面板: Zashboard"
@@ -704,7 +707,15 @@ fi'
 
         local GIST_URL="https://gist.github.com/cuddly-guacamole/dd77ff71ab181a5ea228d25bc728a6b6/raw/AdGuardHome.yaml"
         if wget -q -O files/etc/AdGuardHome.yaml "$GIST_URL"; then
-            echo "✅ 预设配置文件已写入: files/etc/AdGuardHome.yaml"
+            # 统计库改到 /tmp, 避免 AdGuardHome 按 interval 周期性写闪存
+            # (querylog 预设中已关闭; 代价是重启后统计数据清零)
+            sed -i 's|^  dir_path: ""$|  dir_path: /tmp|' files/etc/AdGuardHome.yaml
+
+            if grep -q '^  dir_path: /tmp$' files/etc/AdGuardHome.yaml; then
+                echo "✅ 预设配置文件已写入: files/etc/AdGuardHome.yaml (统计库已改到 /tmp)"
+            else
+                echo "⚠️ 预设配置已写入, 但统计库路径替换未生效, 请检查 yaml 结构"
+            fi
         else
             echo "❌ 从 Gist 下载配置文件失败"
         fi
