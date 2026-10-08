@@ -28,13 +28,13 @@
 
 ## DHCP uboot
 
-本仓库固件按 ubootmod 布局编译，适配 https://github.com/Yuzhii0718/bl-mt798x-dhcpd （hanwckf `bl-mt798x` 的分支，支持 DHCP、带 Web UI 与多布局）。编译 uboot 时请选择 `VARIANT=ubootmod`。
+本仓库固件按 ubootmod 布局编译，适配 https://github.com/Yuzhii0718/bl-mt798x-dhcpd （hanwckf `bl-mt798x` 的分支，支持 DHCP、带 Web UI 与多布局）。
+
+> 本仓库**不再构建 uboot**，直接使用上述项目的发布版本即可。若需自行编译，请选择 `VARIANT=ubootmod`。
 
 ![](/uboot.png)
 
 128M uboot 为三分区 uboot，支持原厂 ubi 大小 64MB，扩容 ubi 分区 112MB，最大 ubi 分区 122MB
-
-256M uboot 为单分区 uboot
 
 > 该 uboot 的 `ubootmod` 变体（`configs-fit/mt7981_cudy_tr3000-v1_defconfig`）未启用 MTK-NMBM，
 > 其 mtdparts 把 ubi 声明为「剩余全部空间」；固件侧按 112M 构建，与历史行为保持一致。
