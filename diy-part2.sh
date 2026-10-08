@@ -28,24 +28,42 @@ fi
 sed -i "/hostname='ImmortalWrt'/s/'ImmortalWrt'/'CUDY'/g" package/base-files/files/bin/config_generate
 
 # 修改 MTK WiFi 默认配置
-MTWIFI_SH="package/mtk/applications/mtwifi-cfg/files/mtwifi.sh"
-if [ -f "$MTWIFI_SH" ]; then
-    sed -i 's/ssid="ImmortalWrt-2.4G"/ssid="CUDY-2.4G"/g' "$MTWIFI_SH"
-    sed -i 's/ssid="ImmortalWrt-5G"/ssid="CUDY-5G"/g' "$MTWIFI_SH"
+# 25.12 起配置工具链由 Lua 重写为 ucode, 实际生效的是 mtwifi-cfg-ucode,
+# 默认值位于 lib/wifi/mtwifi.uc; 旧 Lua 包已废弃, 一并处理以防上游回退。
+MTWIFI_UC="package/mtk/applications/mtwifi-cfg-ucode/files/lib/wifi/mtwifi.uc"
+MTWIFI_LUA="package/mtk/applications/mtwifi-cfg/files/mtwifi.sh"
+MTWIFI_DONE=false
 
-    # 修改默认国家码为 AU
-    sed -i 's/set wireless.${dev}.country=CN/set wireless.${dev}.country=AU/g' "$MTWIFI_SH"
+if [ -f "$MTWIFI_UC" ]; then
+    sed -i -e 's/ssid: "ImmortalWrt-2.4G"/ssid: "CUDY-2.4G"/' \
+           -e 's/ssid: "ImmortalWrt-5G"/ssid: "CUDY-5G"/' \
+           -e 's/ssid: "ImmortalWrt-6G"/ssid: "CUDY-6G"/' \
+           -e 's/"country": "CN"/"country": "AU"/' "$MTWIFI_UC"
 
-    if grep -q 'ssid="CUDY-2.4G"' "$MTWIFI_SH" && grep -q 'country=AU' "$MTWIFI_SH"; then
-        echo "✅ MTK WiFi 默认 SSID / 国家码已修改"
+    if grep -q 'CUDY-2.4G' "$MTWIFI_UC" && grep -q '"country": "AU"' "$MTWIFI_UC"; then
+        echo "✅ MTK WiFi 默认 SSID / 国家码已修改 (ucode)"
+        MTWIFI_DONE=true
     else
-        echo "⚠️ MTK WiFi 默认值修改未完全生效, 请检查上游 mtwifi.sh 结构"
+        echo "⚠️ ucode 版 mtwifi 默认值修改未完全生效, 请检查 $MTWIFI_UC 结构"
     fi
-else
-    echo "⚠️ 未找到 $MTWIFI_SH, 跳过 MTK WiFi 默认值修改"
 fi
 
-# 默认信道: 25.12 上游 mtwifi.sh 已使用 channel=auto, 无需再替换
+if [ -f "$MTWIFI_LUA" ]; then
+    sed -i -e 's/ssid="ImmortalWrt-2.4G"/ssid="CUDY-2.4G"/g' \
+           -e 's/ssid="ImmortalWrt-5G"/ssid="CUDY-5G"/g' \
+           -e 's/set wireless.${dev}.country=CN/set wireless.${dev}.country=AU/g' "$MTWIFI_LUA"
+
+    if [ "$MTWIFI_DONE" = "false" ] && grep -q 'ssid="CUDY-2.4G"' "$MTWIFI_LUA"; then
+        echo "✅ MTK WiFi 默认 SSID / 国家码已修改 (Lua)"
+        MTWIFI_DONE=true
+    fi
+fi
+
+if [ "$MTWIFI_DONE" = "false" ]; then
+    echo "⚠️ 未找到可修改的 mtwifi 默认值文件, 跳过 MTK WiFi 默认值修改"
+fi
+
+# 默认信道: 上游 mtwifi 默认已是 channel=auto, 无需替换
 
 # 防御: 若 feeds 中自带 luci-app-openclash, 移除避免与 package/ 内克隆版本冲突
 # (此脚本在 feeds update/install 之后执行, 此时的移除才是有效的)
