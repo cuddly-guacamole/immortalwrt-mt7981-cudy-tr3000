@@ -55,8 +55,22 @@ rm -rf feeds/luci/luci-app-openclash 2>/dev/null || true
 sed -i -e '/^IMG_PREFIX:=/i BUILD_DATE := $(shell date +%Y%m%d)' \
        -e '/^IMG_PREFIX:=/ s/\($(SUBTARGET)\)/\1-$(BUILD_DATE)/' include/image.mk
 
-# ubootmod ubi 分区: 25.12 上游已默认 122M (reg = <0x5c0000 0x7a40000>),
-# 旧版 24.10 需要的 sed 扩容已不再需要, 故移除
+# ubootmod ubi 分区改回 112M
+# 上游 25.12 (含官方 openwrt/immortalwrt) 默认 reg = <0x5c0000 0x7a40000> 即 122M,
+# 该值恰好占满整块 NAND 在 0x5c0000 之后的全部剩余空间 (128MiB - 5.75MiB = 122.25MiB),
+# 没有任何坏块替换余量; 且部分 uboot 版本按 112M 布局构建, 分区不一致会导致刷入失败。
+# 112M 保留 10.25MiB 余量, 与历史固件行为一致。
+UBOOTMOD_DTS="target/linux/mediatek/dts/mt7981b-cudy-tr3000-v1-ubootmod.dts"
+if [ -f "$UBOOTMOD_DTS" ]; then
+    sed -i 's/reg = <0x5c0000 0x7a40000>;/reg = <0x5c0000 0x7000000>;/' "$UBOOTMOD_DTS"
+    if grep -q 'reg = <0x5c0000 0x7000000>;' "$UBOOTMOD_DTS"; then
+        echo "✅ ubootmod ubi 分区已改为 112M"
+    else
+        echo "⚠️ ubootmod ubi 分区替换未生效, 请检查上游设备树结构"
+    fi
+else
+    echo "⚠️ 未找到 $UBOOTMOD_DTS, 跳过 ubi 分区调整"
+fi
 
 
 
