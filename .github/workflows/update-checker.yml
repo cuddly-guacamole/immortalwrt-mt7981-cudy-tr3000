@@ -13,8 +13,9 @@
 name: Update Checker
 
 env:
-  REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
-  REPO_BRANCH: openwrt-24.10-6.6
+  # 上游：ImmortalWrt 25.12 底座 + MTK OpenWrt Feeds 闭源驱动移植
+  REPO_URL: https://github.com/chasey-dev/immortalwrt-mt798x-rebase
+  REPO_BRANCH: 25.12
 
 on:
   workflow_dispatch:
@@ -50,7 +51,7 @@ jobs:
         with:
           token: ${{ github.token }}
           event-type: Source Code Update
-          client-payload: '{"device": "all", "repo": "https://github.com/padavanonly/immortalwrt-mt798x-6.6", "release": "true"}'
+          client-payload: '{"device": "all", "repo": "https://github.com/chasey-dev/immortalwrt-mt798x-rebase", "release": "true"}'
           
       - name: Delete workflow runs
         uses: Mattraks/delete-workflow-runs@v2

@@ -22,7 +22,7 @@ on:
         description: '指定源码仓库地址'
         required: true
         type: string
-        default: 'https://github.com/padavanonly/immortalwrt-mt798x-6.6'
+        default: 'https://github.com/chasey-dev/immortalwrt-mt798x-rebase'
       commit:
         description: '指定源码commit进行编译，留空拉取最新源码'
         required: false
@@ -69,8 +69,10 @@ env:
   DEVICE_INPUT: ${{ github.event.inputs.device || github.event.client_payload.device || 'all' }}
   CCACHE_DIR: /workdir/.ccache
   CCACHE_MAXSIZE: 2G
-  REPO_URL: ${{ github.event.inputs.repo || github.event.client_payload.repo || 'https://github.com/padavanonly/immortalwrt-mt798x-6.6' }}
-  REPO_BRANCH: openwrt-24.10-6.6
+  # 上游：ImmortalWrt 25.12 底座 + MTK OpenWrt Feeds 闭源驱动移植
+  # 相较原 padavanonly/immortalwrt-mt798x-6.6：内核 6.6.133 -> 6.12.x，且持续跟随主线
+  REPO_URL: ${{ github.event.inputs.repo || github.event.client_payload.repo || 'https://github.com/chasey-dev/immortalwrt-mt798x-rebase' }}
+  REPO_BRANCH: 25.12
   REPO_COMMIT: ${{ github.event.inputs.commit || github.event.client_payload.commit || '' }}
   FEEDS_CONF: feeds.conf.default
   DIY_P1_SH: diy-part1.sh
