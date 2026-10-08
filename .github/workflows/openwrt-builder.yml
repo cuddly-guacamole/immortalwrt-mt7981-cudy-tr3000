@@ -272,11 +272,93 @@ jobs:
             # 3. 加载配置
             cp -f $GITHUB_WORKSPACE/$CONFIG .config
             
-            # 4. 刷新配置并下载
+            # 4. 刷新配置
             make defconfig
+
+            # 4.1 校验关键配置是否在 25.12 源码树下真正生效
+            #     make defconfig 会静默丢弃上游已改名/移除的符号, 这里显式兜底
+            case "$DEV" in
+              "256M") EXPECT_DEV="cudy_tr3000-256mb-v1" ;;
+              "128M") EXPECT_DEV="cudy_tr3000-v1" ;;
+              "128M-Ubootmod") EXPECT_DEV="cudy_tr3000-v1-ubootmod" ;;
+            esac
+
+            CRITICAL_PRESENT="CONFIG_TARGET_MULTI_PROFILE CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_${EXPECT_DEV} CONFIG_PACKAGE_kmod-mt_wifi CONFIG_PACKAGE_mtwifi-cfg CONFIG_PACKAGE_luci-app-mtwifi-cfg"
+            CRITICAL_ABSENT="CONFIG_KERNEL_USER_NS CONFIG_PACKAGE_kmod-sctp"
+            IMPORTANT_PRESENT="CONFIG_PACKAGE_kmod-conninfra CONFIG_PACKAGE_kmod-warp CONFIG_PACKAGE_kmod-mediatek_hnat CONFIG_PACKAGE_luci-app-turboacc-mtk CONFIG_PACKAGE_kmod-tun CONFIG_PACKAGE_luci-app-openclash CONFIG_PACKAGE_luci-theme-aurora"
+
+            echo ""
+            echo "🔍 校验配置生效情况 ($DEV, 目标设备 $EXPECT_DEV)"
+            FAIL=0
+            WARN=0
+            REPORT=""
+
+            for s in $CRITICAL_PRESENT; do
+              if grep -qE "^${s}=y$" .config; then
+                echo "  ✅ $s"
+              else
+                echo "  ❌ 缺失(关键): $s"
+                FAIL=$((FAIL+1)); REPORT="${REPORT}- ❌ 缺失(关键) \`$s\`"$'\n'
+              fi
+            done
+
+            for s in $CRITICAL_ABSENT; do
+              if grep -qE "^${s}=y$" .config; then
+                echo "  ❌ 未关闭(关键): $s"
+                FAIL=$((FAIL+1)); REPORT="${REPORT}- ❌ 未关闭(关键) \`$s\`"$'\n'
+              elif grep -qE "^# ${s} is not set$" .config; then
+                echo "  ✅ 已关闭: $s"
+              else
+                echo "  ℹ️ 未出现: $s (上游无此符号, 视为已关闭)"
+              fi
+            done
+
+            for s in $IMPORTANT_PRESENT; do
+              if grep -qE "^${s}=y$" .config; then
+                echo "  ✅ $s"
+              else
+                echo "  ⚠️ 缺失(次要): $s"
+                WARN=$((WARN+1)); REPORT="${REPORT}- ⚠️ 缺失(次要) \`$s\`"$'\n'
+              fi
+            done
+
+            # 全量对比: 源配置中启用但 defconfig 后不再启用的包
+            DROPPED=$(comm -23 \
+              <(grep -oE "^CONFIG_PACKAGE_[A-Za-z0-9_.+-]+=y$" "$GITHUB_WORKSPACE/$CONFIG" | sed 's/=y$//' | sort -u) \
+              <(grep -oE "^CONFIG_PACKAGE_[A-Za-z0-9_.+-]+=y$" .config | sed 's/=y$//' | sort -u) || true)
+            DROPPED_COUNT=$(printf '%s\n' "$DROPPED" | grep -c '^CONFIG_PACKAGE_' || true)
+            DROPPED_COUNT=${DROPPED_COUNT:-0}
+
+            if [ "$DROPPED_COUNT" -gt 0 ]; then
+              echo ""
+              echo "⚠️ 有 $DROPPED_COUNT 个包在 defconfig 后不再启用 (可能已改名或移除):"
+              printf '%s\n' "$DROPPED" | sed 's/^CONFIG_PACKAGE_/  - /'
+              REPORT="${REPORT}- ⚠️ defconfig 后不再启用 $DROPPED_COUNT 个包, 明细见构建日志"$'\n'
+            fi
+
+            {
+              echo "### 配置校验: $DEV"
+              echo ""
+              echo "- 目标设备: \`$EXPECT_DEV\`"
+              echo "- 关键缺失: **$FAIL** 项 · 次要缺失: **$WARN** 项 · 包变更: **$DROPPED_COUNT** 项"
+              echo ""
+              if [ -n "$REPORT" ]; then echo "$REPORT"; fi
+              echo "内核提权缓解: USER_NS 与 SCTP 已关闭 (IPsec AH 由 generic config 默认关闭)"
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            if [ "$FAIL" -ne 0 ]; then
+              echo ""
+              echo "❌ 关键配置校验未通过, 中止 $DEV 构建 (详见上方清单)"
+              exit 1
+            fi
+            if [ "$WARN" -ne 0 ]; then
+              echo "⚠️ 存在 $WARN 项次要配置缺失, 不阻断构建, 请确认是否需要调整"
+            fi
+
+            # 5. 下载依赖
             make download -j$(nproc)
             
-            # 5. 开始编译
+            # 6. 开始编译
             # 使用 ccache 加速，并保留 Toolchain
             if ! make -j$(nproc) CC="ccache gcc" CXX="ccache g++"; then
               echo "⚠️ Multi-threaded failed, retrying single-threaded..."
