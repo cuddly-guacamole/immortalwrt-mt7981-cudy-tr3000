@@ -14,7 +14,6 @@ on:
         type: choice
         default: '128M-Ubootmod'
         options:
-          - '256M'
           - '128M'
           - '128M-Ubootmod'
           - 'all' 
@@ -111,7 +110,6 @@ jobs:
       - name: 🔧 Set device variables
         run: |
           case "$DEVICE_INPUT" in
-            "256M") echo "CONFIG_FILE=config/256m.config" >> $GITHUB_ENV ;;
             "128M") echo "CONFIG_FILE=config/128m.config" >> $GITHUB_ENV ;;
             "128M-Ubootmod") echo "CONFIG_FILE=config/128muboot.config" >> $GITHUB_ENV ;;
           esac
@@ -231,9 +229,9 @@ jobs:
           # 加载 .config 供 diy-part2.sh 检查编译选项
           if [ "$DEVICE_INPUT" != "all" ]; then
             case "$DEVICE_INPUT" in
-              "256M") CONFIG="config/256m.config" ;;
               "128M") CONFIG="config/128m.config" ;;
               "128M-Ubootmod") CONFIG="config/128muboot.config" ;;
+              *) echo "❌ 未知机型: $DEV (可选: 128M / 128M-Ubootmod / all)"; exit 1 ;;
             esac
             if [ -e "$GITHUB_WORKSPACE/$CONFIG" ]; then
               cp -f "$GITHUB_WORKSPACE/$CONFIG" .config
@@ -249,7 +247,7 @@ jobs:
 
           # 与编译循环保持一致, 但一次校验全部机型, 避免逐台试错
           if [ "${DEVICE_INPUT}" = "all" ]; then
-            DEVICES="256M 128M 128M-Ubootmod"
+            DEVICES="128M 128M-Ubootmod"
           else
             DEVICES="${DEVICE_INPUT}"
           fi
@@ -262,9 +260,9 @@ jobs:
 
           for DEV in $DEVICES; do
             case "$DEV" in
-              "256M") CONFIG="config/256m.config"; EXPECT_DEV="cudy_tr3000-256mb-v1" ;;
               "128M") CONFIG="config/128m.config"; EXPECT_DEV="cudy_tr3000-v1" ;;
               "128M-Ubootmod") CONFIG="config/128muboot.config"; EXPECT_DEV="cudy_tr3000-v1-ubootmod" ;;
+              *) echo "❌ 未知机型: $DEV (可选: 128M / 128M-Ubootmod / all)"; exit 1 ;;
             esac
 
             echo ""
@@ -365,7 +363,7 @@ jobs:
         run: |
           # 1. 确定编译列表
           if [ "${DEVICE_INPUT}" = "all" ]; then
-            DEVICES="256M 128M 128M-Ubootmod"
+            DEVICES="128M 128M-Ubootmod"
           else
             DEVICES="${DEVICE_INPUT}"
           fi
@@ -379,9 +377,9 @@ jobs:
             
             # 2. 设置当前设备配置文件
             case "$DEV" in
-              "256M") CONFIG="config/256m.config" ;;
               "128M") CONFIG="config/128m.config" ;;
               "128M-Ubootmod") CONFIG="config/128muboot.config" ;;
+              *) echo "❌ 未知机型: $DEV (可选: 128M / 128M-Ubootmod / all)"; exit 1 ;;
             esac
             
             echo "Using Config: $CONFIG"
