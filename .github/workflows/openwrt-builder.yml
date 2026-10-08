@@ -243,6 +243,123 @@ jobs:
           chmod +x $GITHUB_WORKSPACE/$DIY_P2_SH
           $GITHUB_WORKSPACE/$DIY_P2_SH
 
+      - name: 🔍 预检各机型配置生效情况
+        run: |
+          cd /workdir/openwrt
+
+          # 与编译循环保持一致, 但一次校验全部机型, 避免逐台试错
+          if [ "${DEVICE_INPUT}" = "all" ]; then
+            DEVICES="256M 128M 128M-Ubootmod"
+          else
+            DEVICES="${DEVICE_INPUT}"
+          fi
+
+          echo "预检机型: $DEVICES"
+
+          TOTAL_FAIL=0
+          TOTAL_WARN=0
+          REPORT=""
+
+          for DEV in $DEVICES; do
+            case "$DEV" in
+              "256M") CONFIG="config/256m.config"; EXPECT_DEV="cudy_tr3000-256mb-v1" ;;
+              "128M") CONFIG="config/128m.config"; EXPECT_DEV="cudy_tr3000-v1" ;;
+              "128M-Ubootmod") CONFIG="config/128muboot.config"; EXPECT_DEV="cudy_tr3000-v1-ubootmod" ;;
+            esac
+
+            echo ""
+            echo "🔍 [$DEV] 目标设备 $EXPECT_DEV"
+
+            cp -f "$GITHUB_WORKSPACE/$CONFIG" .config
+            make defconfig > /dev/null
+
+            FAIL=0
+            WARN=0
+            LINES=""
+
+            CRITICAL_PRESENT="CONFIG_TARGET_MULTI_PROFILE CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_${EXPECT_DEV} CONFIG_PACKAGE_kmod-mt_wifi CONFIG_PACKAGE_mtwifi-cfg-ucode CONFIG_PACKAGE_luci-app-mtwifi-cfg"
+            CRITICAL_ABSENT="CONFIG_KERNEL_USER_NS CONFIG_PACKAGE_kmod-sctp CONFIG_PACKAGE_mtwifi-cfg"
+            IMPORTANT_PRESENT="CONFIG_PACKAGE_kmod-conninfra CONFIG_PACKAGE_kmod-warp CONFIG_PACKAGE_kmod-mediatek_hnat CONFIG_PACKAGE_luci-app-turboacc-mtk CONFIG_PACKAGE_kmod-tun CONFIG_PACKAGE_luci-app-openclash CONFIG_PACKAGE_luci-theme-aurora CONFIG_PACKAGE_autocore"
+
+            for s in $CRITICAL_PRESENT; do
+              if grep -qE "^${s}=y$" .config; then
+                echo "  ✅ $s"
+              else
+                echo "  ❌ 缺失(关键): $s"
+                FAIL=$((FAIL+1)); LINES="${LINES}- ❌ 缺失(关键) \`$s\`"$'\n'
+              fi
+            done
+
+            for s in $CRITICAL_ABSENT; do
+              if grep -qE "^${s}=y$" .config; then
+                echo "  ❌ 未关闭(关键): $s"
+                FAIL=$((FAIL+1)); LINES="${LINES}- ❌ 未关闭(关键) \`$s\`"$'\n'
+              elif grep -qE "^# ${s} is not set$" .config; then
+                echo "  ✅ 已关闭: $s"
+              else
+                echo "  ℹ️ 未出现: $s (上游无此符号, 视为已关闭)"
+              fi
+            done
+
+            if [ "$DEV" = "128M-Ubootmod" ]; then
+              if grep -q 'reg = <0x5c0000 0x7000000>;' target/linux/mediatek/dts/mt7981b-cudy-tr3000-v1-ubootmod.dts 2>/dev/null; then
+                echo "  ✅ ubootmod ubi 分区 = 112M"
+              else
+                echo "  ❌ ubootmod ubi 分区不是 112M"
+                FAIL=$((FAIL+1)); LINES="${LINES}- ❌ ubootmod ubi 分区不是 112M"$'\n'
+              fi
+            fi
+
+            for s in $IMPORTANT_PRESENT; do
+              if grep -qE "^${s}=y$" .config; then
+                echo "  ✅ $s"
+              else
+                echo "  ⚠️ 缺失(次要): $s"
+                WARN=$((WARN+1)); LINES="${LINES}- ⚠️ 缺失(次要) \`$s\`"$'\n'
+              fi
+            done
+
+            # 全量对比: 源配置中启用但 defconfig 后不再启用的包
+            DROPPED=$(comm -23 \
+              <(grep -oE "^CONFIG_PACKAGE_[A-Za-z0-9_.+-]+=y$" "$GITHUB_WORKSPACE/$CONFIG" | sed 's/=y$//' | sort -u) \
+              <(grep -oE "^CONFIG_PACKAGE_[A-Za-z0-9_.+-]+=y$" .config | sed 's/=y$//' | sort -u) || true)
+            DROPPED_COUNT=$(printf '%s\n' "$DROPPED" | grep -c '^CONFIG_PACKAGE_' || true)
+            DROPPED_COUNT=${DROPPED_COUNT:-0}
+
+            if [ "$DROPPED_COUNT" -gt 0 ]; then
+              echo ""
+              echo "  ⚠️ 有 $DROPPED_COUNT 个包在 defconfig 后不再启用:"
+              printf '%s\n' "$DROPPED" | sed 's/^CONFIG_PACKAGE_/    - /'
+              LINES="${LINES}- ⚠️ defconfig 后不再启用 $DROPPED_COUNT 个包 (明细见构建日志)"$'\n'
+            fi
+
+            TOTAL_FAIL=$((TOTAL_FAIL+FAIL))
+            TOTAL_WARN=$((TOTAL_WARN+WARN))
+            REPORT="${REPORT}### $DEV · \`$EXPECT_DEV\`"$'\n\n'
+            REPORT="${REPORT}- 关键缺失 **$FAIL** · 次要缺失 **$WARN** · 包变更 **$DROPPED_COUNT**"$'\n'
+            REPORT="${REPORT}${LINES}"$'\n'
+          done
+
+          {
+            echo "## 预检结果"
+            echo ""
+            echo "关键问题合计 **$TOTAL_FAIL** 项 · 次要问题合计 **$TOTAL_WARN** 项"
+            echo ""
+            echo "$REPORT"
+            echo "内核提权缓解: USER_NS 与 SCTP 已关闭 (IPsec AH 由 generic config 默认关闭)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$TOTAL_FAIL" -ne 0 ]; then
+            echo ""
+            echo "❌ 预检未通过, 共 $TOTAL_FAIL 项关键问题, 中止构建"
+            exit 1
+          fi
+          if [ "$TOTAL_WARN" -ne 0 ]; then
+            echo "⚠️ 预检存在 $TOTAL_WARN 项次要问题, 不阻断构建"
+          fi
+          echo ""
+          echo "✅ 预检通过, 开始编译"
+
       - name: 🔨 Multi-Device Compilation Loop
         id: compile
         run: |
@@ -272,104 +389,11 @@ jobs:
             # 3. 加载配置
             cp -f $GITHUB_WORKSPACE/$CONFIG .config
             
-            # 4. 刷新配置
+            # 4. 刷新配置并下载
             make defconfig
-
-            # 4.1 校验关键配置是否在 25.12 源码树下真正生效
-            #     make defconfig 会静默丢弃上游已改名/移除的符号, 这里显式兜底
-            case "$DEV" in
-              "256M") EXPECT_DEV="cudy_tr3000-256mb-v1" ;;
-              "128M") EXPECT_DEV="cudy_tr3000-v1" ;;
-              "128M-Ubootmod") EXPECT_DEV="cudy_tr3000-v1-ubootmod" ;;
-            esac
-
-            CRITICAL_PRESENT="CONFIG_TARGET_MULTI_PROFILE CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_${EXPECT_DEV} CONFIG_PACKAGE_kmod-mt_wifi CONFIG_PACKAGE_mtwifi-cfg CONFIG_PACKAGE_luci-app-mtwifi-cfg"
-            CRITICAL_ABSENT="CONFIG_KERNEL_USER_NS CONFIG_PACKAGE_kmod-sctp"
-            IMPORTANT_PRESENT="CONFIG_PACKAGE_kmod-conninfra CONFIG_PACKAGE_kmod-warp CONFIG_PACKAGE_kmod-mediatek_hnat CONFIG_PACKAGE_luci-app-turboacc-mtk CONFIG_PACKAGE_kmod-tun CONFIG_PACKAGE_luci-app-openclash CONFIG_PACKAGE_luci-theme-aurora"
-
-            echo ""
-            echo "🔍 校验配置生效情况 ($DEV, 目标设备 $EXPECT_DEV)"
-            FAIL=0
-            WARN=0
-            REPORT=""
-
-            for s in $CRITICAL_PRESENT; do
-              if grep -qE "^${s}=y$" .config; then
-                echo "  ✅ $s"
-              else
-                echo "  ❌ 缺失(关键): $s"
-                FAIL=$((FAIL+1)); REPORT="${REPORT}- ❌ 缺失(关键) \`$s\`"$'\n'
-              fi
-            done
-
-            for s in $CRITICAL_ABSENT; do
-              if grep -qE "^${s}=y$" .config; then
-                echo "  ❌ 未关闭(关键): $s"
-                FAIL=$((FAIL+1)); REPORT="${REPORT}- ❌ 未关闭(关键) \`$s\`"$'\n'
-              elif grep -qE "^# ${s} is not set$" .config; then
-                echo "  ✅ 已关闭: $s"
-              else
-                echo "  ℹ️ 未出现: $s (上游无此符号, 视为已关闭)"
-              fi
-            done
-
-            # ubootmod 机型额外校验 ubi 分区大小
-            # diy-part2.sh 会把上游默认的 122M (0x7a40000) 改回 112M (0x7000000)
-            if [ "$DEV" = "128M-Ubootmod" ]; then
-              if grep -q 'reg = <0x5c0000 0x7000000>;' target/linux/mediatek/dts/mt7981b-cudy-tr3000-v1-ubootmod.dts 2>/dev/null; then
-                echo "  ✅ ubootmod ubi 分区 = 112M"
-              else
-                echo "  ❌ ubootmod ubi 分区不是 112M"
-                FAIL=$((FAIL+1)); REPORT="${REPORT}- ❌ ubootmod ubi 分区不是 112M"$'\n'
-              fi
-            fi
-
-            for s in $IMPORTANT_PRESENT; do
-              if grep -qE "^${s}=y$" .config; then
-                echo "  ✅ $s"
-              else
-                echo "  ⚠️ 缺失(次要): $s"
-                WARN=$((WARN+1)); REPORT="${REPORT}- ⚠️ 缺失(次要) \`$s\`"$'\n'
-              fi
-            done
-
-            # 全量对比: 源配置中启用但 defconfig 后不再启用的包
-            DROPPED=$(comm -23 \
-              <(grep -oE "^CONFIG_PACKAGE_[A-Za-z0-9_.+-]+=y$" "$GITHUB_WORKSPACE/$CONFIG" | sed 's/=y$//' | sort -u) \
-              <(grep -oE "^CONFIG_PACKAGE_[A-Za-z0-9_.+-]+=y$" .config | sed 's/=y$//' | sort -u) || true)
-            DROPPED_COUNT=$(printf '%s\n' "$DROPPED" | grep -c '^CONFIG_PACKAGE_' || true)
-            DROPPED_COUNT=${DROPPED_COUNT:-0}
-
-            if [ "$DROPPED_COUNT" -gt 0 ]; then
-              echo ""
-              echo "⚠️ 有 $DROPPED_COUNT 个包在 defconfig 后不再启用 (可能已改名或移除):"
-              printf '%s\n' "$DROPPED" | sed 's/^CONFIG_PACKAGE_/  - /'
-              REPORT="${REPORT}- ⚠️ defconfig 后不再启用 $DROPPED_COUNT 个包, 明细见构建日志"$'\n'
-            fi
-
-            {
-              echo "### 配置校验: $DEV"
-              echo ""
-              echo "- 目标设备: \`$EXPECT_DEV\`"
-              echo "- 关键缺失: **$FAIL** 项 · 次要缺失: **$WARN** 项 · 包变更: **$DROPPED_COUNT** 项"
-              echo ""
-              if [ -n "$REPORT" ]; then echo "$REPORT"; fi
-              echo "内核提权缓解: USER_NS 与 SCTP 已关闭 (IPsec AH 由 generic config 默认关闭)"
-            } >> "$GITHUB_STEP_SUMMARY"
-
-            if [ "$FAIL" -ne 0 ]; then
-              echo ""
-              echo "❌ 关键配置校验未通过, 中止 $DEV 构建 (详见上方清单)"
-              exit 1
-            fi
-            if [ "$WARN" -ne 0 ]; then
-              echo "⚠️ 存在 $WARN 项次要配置缺失, 不阻断构建, 请确认是否需要调整"
-            fi
-
-            # 5. 下载依赖
             make download -j$(nproc)
             
-            # 6. 开始编译
+            # 5. 开始编译
             # 使用 ccache 加速，并保留 Toolchain
             if ! make -j$(nproc) CC="ccache gcc" CXX="ccache g++"; then
               echo "⚠️ Multi-threaded failed, retrying single-threaded..."
