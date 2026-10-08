@@ -313,6 +313,17 @@ jobs:
               fi
             done
 
+            # ubootmod 机型额外校验 ubi 分区大小
+            # diy-part2.sh 会把上游默认的 122M (0x7a40000) 改回 112M (0x7000000)
+            if [ "$DEV" = "128M-Ubootmod" ]; then
+              if grep -q 'reg = <0x5c0000 0x7000000>;' target/linux/mediatek/dts/mt7981b-cudy-tr3000-v1-ubootmod.dts 2>/dev/null; then
+                echo "  ✅ ubootmod ubi 分区 = 112M"
+              else
+                echo "  ❌ ubootmod ubi 分区不是 112M"
+                FAIL=$((FAIL+1)); REPORT="${REPORT}- ❌ ubootmod ubi 分区不是 112M"$'\n'
+              fi
+            fi
+
             for s in $IMPORTANT_PRESENT; do
               if grep -qE "^${s}=y$" .config; then
                 echo "  ✅ $s"
