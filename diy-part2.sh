@@ -818,6 +818,59 @@ apply_tweaks() {
         echo "   - 仅内网可访问管理端口: 开启 (intranet_allowed=1, 挡公网)"
         echo "   - 代理认证 / 面板密码: 已关闭 (不再随机生成)"
 
+        # --- 小巧思1b: 拉长 watchdog 里「跳过代理地址」的刷新间隔 ---
+        #
+        # 背景 (实测数据, 2026-10-09):
+        #   openclash_watchdog.sh 主循环末尾是 sleep 60, 而脚本头部写着
+        #       SKIP_PROXY_ADDRESS_INTERVAL=30
+        #   表示每 30 轮调用一次 skip_proxies_address():
+        #       30 × 60s ≈ 31 分钟一次
+        #   实测 loadmon 连续 8 轮尖峰间隔 30m53s~31m05s, 与推算完全吻合。
+        #
+        #   每次那 37 秒里它做的是: 用 ruby 加载 ~99KB YAML, 再对 35 个节点域名
+        #   各做 A / AAAA 两次 DNS 查询 ——
+        #       curl -s -m 3 http://127.0.0.1:$cn_port/dns/query | jsonfilter
+        #   10 线程并发, 共 70 个 curl+jsonfilter 子进程。在 2 核 MT7981 上直接
+        #   把 CPU 打满: 实测 idle 0% / 63% usr + 36% sys / 进程数 132 → 239 /
+        #   load1 从 1.6 冲到 7.5~9.4, 并留下 60 个 [sh] 僵尸进程。
+        #
+        #   危害: 这 30 多秒里节点健康检查会失败 (clash API 直接返回
+        #   "get delay: all proxies timeout"), DNS 与新建连接也会超时,
+        #   是「掉登录态 / 游戏登录转圈」的诱因之一。
+        #
+        # 为什么不能直接关掉 skip_proxy_address:
+        #   router_self_proxy=1 时, clash 核心自身到节点的出站连接会被
+        #   nft 的 openclash_output 链 redirect 回它自己的 redir 端口而形成环,
+        #   必须靠 localnetwork 集合里的节点 IP 兜底放行。所以只能降低频率。
+        #
+        # 取值权衡:
+        #   30  轮 ≈ 31 分钟 (上游默认) —— 太频繁, 每半小时一次 37 秒满载
+        #   120 轮 ≈ 2 小时           —— 采用值, 频率降 4 倍
+        #   360 轮 ≈ 6 小时           —— 更激进, 想更安静可以改
+        #   节点是腾讯云/AWS 的弹性 IP, 极少变动; 万一某个节点 IP 变了, 最坏情况是
+        #   该节点不可用并由组内健康检查自动切换, 不会整体断网。
+        #
+        # 想恢复上游默认: 删掉本段即可 (下次编译自动还原为 30)。
+        local OC_WATCHDOG="package/luci-app-openclash/root/usr/share/openclash/openclash_watchdog.sh"
+        local OC_SKIP_INTERVAL=120
+        if [ -f "$OC_WATCHDOG" ]; then
+            if grep -q '^SKIP_PROXY_ADDRESS_INTERVAL=30$' "$OC_WATCHDOG"; then
+                sed -i "s/^SKIP_PROXY_ADDRESS_INTERVAL=30\$/SKIP_PROXY_ADDRESS_INTERVAL=${OC_SKIP_INTERVAL}/" "$OC_WATCHDOG"
+            fi
+            if grep -q "^SKIP_PROXY_ADDRESS_INTERVAL=${OC_SKIP_INTERVAL}\$" "$OC_WATCHDOG"; then
+                echo ""
+                echo "✅ 已拉长「跳过代理地址」刷新间隔: 30 轮(约31分钟) -> ${OC_SKIP_INTERVAL} 轮(约${OC_SKIP_INTERVAL}分钟, 每轮 sleep 60s)"
+            else
+                echo ""
+                echo "⚠️ watchdog 间隔改写失败, 上游可能改了变量名或格式, 请检查:"
+                echo "   $OC_WATCHDOG"
+                grep -n 'SKIP_PROXY_ADDRESS_INTERVAL' "$OC_WATCHDOG" | head -3
+            fi
+        else
+            echo ""
+            echo "⚠️ 未找到 $OC_WATCHDOG, 跳过「跳过代理地址」间隔改写"
+        fi
+
         # 下载最新 Zashboard 面板替换预置版本
         local ZASHBOARD_URL="https://github.com/Zephyruso/zashboard/releases/latest/download/dist-cdn-fonts.zip"
         local ZASHBOARD_DIR="files/usr/share/openclash/ui/zashboard"
