@@ -145,6 +145,47 @@ else
     echo "ℹ️ 未找到 $OPENCLASH_GEOSITE (上游可能已改名或移除)"
 fi
 
+# 预置 GeoIP / ASN 数据文件, 避免 mihomo 首次启动时直连 github 下载
+#
+# 背景: mihomo 在启动阶段就会拉取 geox 数据, 那时代理还没起来, 走的是直连。
+# MetaCubeX 的数据只发布在 release 资产上, 无法用 jsdelivr 镜像, 国内经常拉不动。
+# OpenClash 自带的 Country.mmdb 只有 205 KB (alecthw 的 lite 版, 仅含中国 IP),
+# 覆盖不到其它国家的 GEOIP 规则。
+#
+# 做法: 编译时下载好, 放进 files/etc/openclash/ 覆盖包内版本。
+# 文件名与 OpenClash 使用的路径一致 (见 init 脚本 ipdb_path / asn_path)。
+# 下载失败时不写入, 保留包内自带的 lite 版作为兜底, 不影响构建。
+GEO_DIR="files/etc/openclash"
+GEO_MMDB_URL="https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb"
+GEO_ASN_URL="https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb"
+
+prefetch_geodata() {
+    local URL="$1" DST="$2" LABEL="$3" TMP="/tmp/geo_prefetch.tmp"
+    rm -f "$TMP"
+    if ! wget -q --timeout=30 --tries=2 -O "$TMP" "$URL"; then
+        echo "⚠️ $LABEL 下载失败, 保留包内自带版本 (首次启动时会尝试在线下载)"
+        rm -f "$TMP"; return 1
+    fi
+    # MaxMind DB 格式: 元数据段以 \xab\xcd\xef + "MaxMind.com" 结尾
+    if ! grep -q -a "MaxMind.com" "$TMP"; then
+        echo "⚠️ $LABEL 内容校验失败 (不是有效的 mmdb), 保留包内自带版本"
+        rm -f "$TMP"; return 1
+    fi
+    local SIZE_MB
+    SIZE_MB=$(du -m "$TMP" 2>/dev/null | cut -f1)
+    mkdir -p "$GEO_DIR"
+    mv -f "$TMP" "$GEO_DIR/$DST"
+    echo "✅ 已预置 $LABEL -> $GEO_DIR/$DST (约 ${SIZE_MB:-?} MB)"
+    return 0
+}
+
+if grep -q "CONFIG_PACKAGE_luci-app-openclash=y" .config 2>/dev/null; then
+    prefetch_geodata "$GEO_MMDB_URL" "Country.mmdb" "GeoIP 库 (country.mmdb)" || true
+    prefetch_geodata "$GEO_ASN_URL"  "ASN.mmdb"     "ASN 库 (GeoLite2-ASN.mmdb)" || true
+else
+    echo "ℹ️ luci-app-openclash 未启用, 跳过 geodata 预置"
+fi
+
 # ============================================================
 # 读取用户开关
 # ============================================================
