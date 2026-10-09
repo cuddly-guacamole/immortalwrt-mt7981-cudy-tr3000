@@ -279,6 +279,12 @@ is_valid_elf() {
 }
 
 # 设置 UCI 选项 (已存在则覆盖, 否则追加)
+#
+# ⚠️ 慎用: 若把结果写进 files/etc/config/<pkg>, 会【整体覆盖】该包的默认配置。
+# 包默认通常有几十项, 只写自己关心的几项会静默丢掉其余默认值 —— 这已经造成过
+# 一次事故 (openclash 丢 proxy_mode 导致 mihomo 报 invalid mode 起不来)。
+# 想覆盖包的默认值, 请改用 files/etc/uci-defaults/ 脚本做"叠加", 见
+# apply_system_defaults() 与 apply_tweaks() 里 OpenClash 预设的写法。
 set_uci_option() {
     local FILE="$1"
     local OPTION="$2"
@@ -682,53 +688,84 @@ apply_tweaks() {
         echo ""
         echo "🔧 小巧思1: luci-app-openclash 已启用"
 
-        # 写入 OpenClash 默认 UCI 配置
-        local OPENCLASH_CONFIG="files/etc/config/openclash"
-        mkdir -p files/etc/config
+        # OpenClash 预设: 用 uci-defaults 叠加, 不写 files/etc/config/openclash
+        #
+        # 为什么不能写 files/etc/config/openclash:
+        # 该文件会整体覆盖包自带的 /etc/config/openclash, 而包默认包含 63 个
+        # option + 40 个 dns_servers + 2 个 config_overwrite。只写我们关心的
+        # 十几项会把这些默认全部丢掉, 实测已造成事故:
+        #   openclash.config.proxy_mode 丢失
+        #   -> init.d/openclash 把它作为第 10 个参数传给 yml_change.sh
+        #   -> yml_change.sh: mode = '${10}' 写入 mihomo 的 mode
+        #   -> 生成 mode: '' , 核心报 "Parse config error: invalid mode" 无法启动
+        # 同时丢失的还有 http_port / socks_port / mixed_port / proxy_port /
+        # tproxy_port / enable_udp_proxy / intranet_allowed / log_level 等。
+        #
+        # 改用 uci-defaults 在首次启动时"叠加"设置, 包默认值全部保留。
+        local OPENCLASH_DEFAULTS="files/etc/uci-defaults/99-openclash-preset"
+        mkdir -p files/etc/uci-defaults
+        {
+            echo '#!/bin/sh'
+            echo '# 由 diy-part2.sh 生成 —— OpenClash 预设'
+            echo '# 只 set 需要覆盖的项, 其余保留包 /etc/config/openclash 的默认值'
+            echo ''
+        } > "$OPENCLASH_DEFAULTS"
 
-        if [ -f "$OPENCLASH_CONFIG" ]; then
-            echo "   检测到已有 openclash 配置文件，追加/覆盖选项"
-        else
-            echo "   创建 openclash 配置文件"
-            echo "config openclash 'config'" > "$OPENCLASH_CONFIG"
-        fi
+        oc_set() {
+            echo "uci -q set openclash.config.$1='$2'" >> "$OPENCLASH_DEFAULTS"
+        }
 
-        set_uci_option "$OPENCLASH_CONFIG" default_dashboard zashboard
-        set_uci_option "$OPENCLASH_CONFIG" delay_start 5
+        # 显式固定代理模式: 它是 init 脚本传给 yml_change.sh 的第 10 个参数,
+        # 最终成为 mihomo 的 mode, 缺失或非法会直接导致核心启动失败。
+        oc_set proxy_mode rule
+        oc_set default_dashboard zashboard
+        oc_set delay_start 5
         # 小闪存模式会把 mihomo 内核复制到 /tmp 常驻内存 (十几 MB),
         # 收益仅在更新内核时体现, 而代价是持续占用 RAM, 故关闭
-        set_uci_option "$OPENCLASH_CONFIG" small_flash_memory 0
-        set_uci_option "$OPENCLASH_CONFIG" skip_proxy_address 1
-        set_uci_option "$OPENCLASH_CONFIG" china_ip_route 1
-        set_uci_option "$OPENCLASH_CONFIG" enable_redirect_dns 1
-        set_uci_option "$OPENCLASH_CONFIG" en_mode fake-ip-mix
-        set_uci_option "$OPENCLASH_CONFIG" operation_mode fake-ip-mix
+        oc_set small_flash_memory 0
+        oc_set skip_proxy_address 1
+        oc_set china_ip_route 1
+        oc_set enable_redirect_dns 1
+        oc_set en_mode fake-ip-mix
+        oc_set operation_mode fake-ip-mix
 
         # 覆写设置
-        set_uci_option "$OPENCLASH_CONFIG" enable_tcp_concurrent 1
-        set_uci_option "$OPENCLASH_CONFIG" enable_unified_delay 1
-        set_uci_option "$OPENCLASH_CONFIG" find_process_mode off
-        set_uci_option "$OPENCLASH_CONFIG" geodata_loader memconservative
+        oc_set enable_tcp_concurrent 1
+        oc_set enable_unified_delay 1
+        oc_set find_process_mode off
+        oc_set geodata_loader memconservative
         # geodata 走 mmdb 模式: enable_geoip_dat=0 时不会写入 geodata-mode,
         # 即不使用体积巨大的 geosite.dat / geoip.dat, 改用 Country.mmdb + ASN mmdb。
         # 配合下方移除包内自带的 GeoSite.dat (9.9 MB)。
-        set_uci_option "$OPENCLASH_CONFIG" enable_geoip_dat 0
+        oc_set enable_geoip_dat 0
         # 走 jsdelivr CDN 而非 github release: release 资产要经 github 重定向链,
         # 国内直连(首启动时代理尚未起来)经常失败; jsdelivr 可直连 (实测 HTTP 200)。
         # MetaCubeX/meta-rules-dat 的 release 分支同时提供 mmdb 与 ASN 文件。
-        set_uci_option "$OPENCLASH_CONFIG" geo_custom_url "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb"
-        set_uci_option "$OPENCLASH_CONFIG" geoasn_custom_url "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb"
-        set_uci_option "$OPENCLASH_CONFIG" enable_meta_sniffer 1
-        set_uci_option "$OPENCLASH_CONFIG" enable_meta_sniffer_pure_ip 1
-        set_uci_option "$OPENCLASH_CONFIG" smart_prefer_asn 1
-        set_uci_option "$OPENCLASH_CONFIG" enable_respect_rules 1
+        oc_set geo_custom_url "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb"
+        oc_set geoasn_custom_url "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb"
+        oc_set enable_meta_sniffer 1
+        oc_set enable_meta_sniffer_pure_ip 1
+        oc_set smart_prefer_asn 1
+        oc_set enable_respect_rules 1
         # fakeip 缓存不持久化, 避免周期性写闪存 (重启后重建映射)
-        set_uci_option "$OPENCLASH_CONFIG" store_fakeip 0
+        oc_set store_fakeip 0
+
+        echo 'uci -q commit openclash' >> "$OPENCLASH_DEFAULTS"
+        echo 'exit 0' >> "$OPENCLASH_DEFAULTS"
+        chmod 755 "$OPENCLASH_DEFAULTS"
+
+        if [ "$(grep -c "^uci -q set openclash.config\." "$OPENCLASH_DEFAULTS")" -ge 15 ] \
+           && grep -q "openclash.config.proxy_mode='rule'" "$OPENCLASH_DEFAULTS"; then
+            echo "✅ OpenClash 预设已生成: $OPENCLASH_DEFAULTS"
+        else
+            echo "⚠️ OpenClash 预设生成异常, 请检查 $OPENCLASH_DEFAULTS"
+        fi
 
         echo "✅ OpenClash 预设配置已写入:"
         echo "   - 面板: Zashboard"
         echo "   - 延迟启动: 5s"
-        echo "   - 小闪存模式: 开启"
+        echo "   - 代理模式: rule (proxy_mode, 缺失会导致核心报 invalid mode)"
+        echo "   - 小闪存模式: 关闭 (省十几 MB 常驻内存)"
         echo "   - 绕过服务器地址: 开启"
         echo "   - 绕过中国大陆 IP: 开启"
         echo "   - 本地 DNS 劫持: Dnsmasq 转发"
@@ -743,7 +780,7 @@ apply_tweaks() {
         echo "   - 嗅探纯 IP: 开启"
         echo "   - ASN 优先: 开启"
         echo "   - 遵循规则: 开启"
-        echo "   - Fake-IP 持久化: 开启"
+        echo "   - Fake-IP 持久化: 关闭 (不写闪存)"
 
         # 下载最新 Zashboard 面板替换预置版本
         local ZASHBOARD_URL="https://github.com/Zephyruso/zashboard/releases/latest/download/dist-cdn-fonts.zip"
