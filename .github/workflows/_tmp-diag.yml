@@ -1,0 +1,93 @@
+name: TMP DIAG RELR
+
+# 临时诊断工作流: 验证 -zpack-relative-relocs 在非 PIE 链接时是否向 stderr 输出警告
+# 验证完成后请删除本文件
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 环境与版本
+        run: |
+          set -x
+          gcc --version | head -1
+          ld --version | head -1
+          ldd --version | head -1
+
+      - name: x86_64 原生链接测试
+        run: |
+          printf 'int main(void){return 0;}\n' > /tmp/t.c
+          run_t() {
+            label="$1"; shift
+            rm -f /tmp/t.err
+            if gcc -o /tmp/t /tmp/t.c "$@" 2>/tmp/t.err; then
+              st="链接成功"
+            else
+              st="链接失败"
+            fi
+            if [ -s /tmp/t.err ]; then
+              echo "########## [$label] $st —— stderr 非空 ##########"
+              cat /tmp/t.err
+            else
+              echo "########## [$label] $st —— stderr 为空 ✅ ##########"
+            fi
+            echo
+          }
+          run_t "基线(无特殊标志)"                 -O2
+          run_t "仅 RELR"                          -O2 -zpack-relative-relocs
+          run_t "RELR+now+relro+maxpage+bfd"       -O2 -fuse-ld=bfd -zmax-page-size=4096 -znow -zrelro -zpack-relative-relocs
+          run_t "RELR+pie(PIE 链接)"               -O2 -fPIE -pie -fuse-ld=bfd -zmax-page-size=4096 -znow -zrelro -zpack-relative-relocs
+          run_t "RELR 走 -Wl, 形式"                -O2 -Wl,-z,pack-relative-relocs
+
+      - name: aarch64 交叉链接测试
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gcc-aarch64-linux-gnu
+          printf 'int main(void){return 0;}\n' > /tmp/t.c
+          run_t() {
+            label="$1"; shift
+            rm -f /tmp/t.err
+            if aarch64-linux-gnu-gcc -o /tmp/ta /tmp/t.c "$@" 2>/tmp/t.err; then
+              st="链接成功"
+            else
+              st="链接失败"
+            fi
+            if [ -s /tmp/t.err ]; then
+              echo "########## [$label] $st —— stderr 非空 ##########"
+              cat /tmp/t.err
+            else
+              echo "########## [$label] $st —— stderr 为空 ✅ ##########"
+            fi
+            echo
+          }
+          aarch64-linux-gnu-ld --version | head -1
+          run_t "aarch64 基线"                     -O2
+          run_t "aarch64 RELR"                     -O2 -zpack-relative-relocs
+          run_t "aarch64 RELR+now+relro+maxpage+bfd" -O2 -fuse-ld=bfd -zmax-page-size=4096 -znow -zrelro -zpack-relative-relocs
+
+      - name: ruby configure 的 LDFLAGS 校验复现
+        run: |
+          cd /tmp
+          curl -sL --max-time 180 https://cache.ruby-lang.org/pub/ruby/3.4/ruby-3.4.9.tar.gz -o r.tar.gz
+          tar xzf r.tar.gz ruby-3.4.9/configure
+          mkdir -p rbuild && cd rbuild
+          echo "=== 基线: 不带 RELR ==="
+          if ../ruby-3.4.9/configure CFLAGS="-O2" LDFLAGS="" >/tmp/c1.log 2>&1; then
+            echo "配置成功 ✅"; grep -a "LDFLAGS is valid" /tmp/c1.log || true
+          else
+            echo "配置失败 ❌"; grep -a -B3 -A3 "LDFLAGS is valid" /tmp/c1.log | tail -20
+          fi
+          rm -rf /tmp/rbuild2 && mkdir -p /tmp/rbuild2 && cd /tmp/rbuild2
+          echo
+          echo "=== 关键: 带 RELR ==="
+          if ../ruby-3.4.9/configure CFLAGS="-O2 -fuse-ld=bfd" LDFLAGS="-fuse-ld=bfd -zmax-page-size=4096 -znow -zrelro -zpack-relative-relocs" >/tmp/c2.log 2>&1; then
+            echo "配置成功 ✅ (说明 RELR 不会触发该错误)"; grep -a "LDFLAGS is valid" /tmp/c2.log || true
+          else
+            echo "配置失败 ❌ —— 复现成功"
+            grep -a -B6 -A4 "LDFLAGS is valid" /tmp/c2.log | tail -25
+            echo "--- config.log 中该测试的 stderr ---"
+            grep -a -A6 "conftest.err\|pack-relative" /tmp/rbuild2/config.log | tail -30
+          fi
