@@ -129,6 +129,22 @@ fi
 
 
 
+# 移除 OpenClash 包内自带的 GeoSite.dat (约 9.9 MB)
+# 固件按 mmdb 模式运行 (enable_geoip_dat=0), 不使用 geosite.dat;
+# 若将来切回 dat 模式, OpenClash 会在运行时自行下载到 /etc/openclash/, 不影响功能。
+OPENCLASH_GEOSITE="package/luci-app-openclash/root/etc/openclash/GeoSite.dat"
+if [ -f "$OPENCLASH_GEOSITE" ]; then
+    GEOSITE_MB=$(du -m "$OPENCLASH_GEOSITE" 2>/dev/null | cut -f1)
+    rm -f "$OPENCLASH_GEOSITE"
+    if [ -f "$OPENCLASH_GEOSITE" ]; then
+        echo "⚠️ GeoSite.dat 移除失败, 请检查权限"
+    else
+        echo "✅ 已移除 OpenClash 内置 GeoSite.dat (省约 ${GEOSITE_MB:-10} MB)"
+    fi
+else
+    echo "ℹ️ 未找到 $OPENCLASH_GEOSITE (上游可能已改名或移除)"
+fi
+
 # ============================================================
 # 读取用户开关
 # ============================================================
@@ -219,10 +235,14 @@ set_uci_option() {
     local FILE="$1"
     local OPTION="$2"
     local VALUE="$3"
-    if grep -q "option ${OPTION} " "$FILE" 2>/dev/null; then
-        sed -i "s/option ${OPTION} .*/option ${OPTION} '${VALUE}'/" "$FILE"
+    # 值里可能含 / : 等字符 (例如 geodata 的 URL), 故改用 | 作 sed 分隔符,
+    # 并把值中的 \ & | 转义, 避免破坏 sed 表达式。
+    local ESC
+    ESC=$(printf '%s' "$VALUE" | sed -e 's/[\\&|]/\\&/g')
+    if grep -q "^[[:space:]]*option ${OPTION} " "$FILE" 2>/dev/null; then
+        sed -i "s|^\([[:space:]]*option ${OPTION} \).*|\1'${ESC}'|" "$FILE"
     else
-        echo "	option ${OPTION} '${VALUE}'" >> "$FILE"
+        printf "\toption %s '%s'\n" "$OPTION" "$VALUE" >> "$FILE"
     fi
 }
 
@@ -405,6 +425,14 @@ integrate_mihomo() {
 # ============================================================
 integrate_adguardhome() {
     echo "=========================================="
+    # 安全网: luci-app-adguardhome 未启用时直接跳过。
+    # 配置中已禁用该包 (与 OpenClash 的 fake-ip + mihomo DNS 功能重叠, 且占 11-13 MB),
+    # 没有 UI 的情况下再打包二进制没有意义。
+    if ! grep -q "CONFIG_PACKAGE_luci-app-adguardhome=y" .config 2>/dev/null; then
+        echo "⏭️ luci-app-adguardhome 未启用, 跳过 AdGuardHome 集成"
+        return 0
+    fi
+
     echo "📦 开始集成 AdGuardHome"
     echo "=========================================="
 
@@ -549,10 +577,13 @@ integrate_easytier() {
     ensure_upx
     mkdir -p "$BIN_DIR"
 
-    # 逐个处理: core / cli / web-embed (若有, 安装为 easytier-web)
+    # 只装 core + cli。
+    # easytier-web 是独立的 Web 控制台 (来自 easytier-web-embed, UPX 后单独占 6.2 MB),
+    # LuCI 的 init 脚本本来也只搬 core 与 cli 两个, 不依赖它;
+    # 上游另提供 easytier-noweb 包变体, 做法与此一致。
     local PROCESSED=0
     local PAIR SRC DST
-    for PAIR in "easytier-core:easytier-core" "easytier-cli:easytier-cli" "easytier-web-embed:easytier-web"; do
+    for PAIR in "easytier-core:easytier-core" "easytier-cli:easytier-cli"; do
         SRC="/tmp/easytier/${PAIR%%:*}"
         DST="${PAIR##*:}"
         if [ ! -f "$SRC" ]; then
@@ -630,6 +661,12 @@ apply_tweaks() {
         set_uci_option "$OPENCLASH_CONFIG" enable_unified_delay 1
         set_uci_option "$OPENCLASH_CONFIG" find_process_mode off
         set_uci_option "$OPENCLASH_CONFIG" geodata_loader memconservative
+        # geodata 走 mmdb 模式: enable_geoip_dat=0 时不会写入 geodata-mode,
+        # 即不使用体积巨大的 geosite.dat / geoip.dat, 改用 Country.mmdb + ASN mmdb。
+        # 配合下方移除包内自带的 GeoSite.dat (9.9 MB)。
+        set_uci_option "$OPENCLASH_CONFIG" enable_geoip_dat 0
+        set_uci_option "$OPENCLASH_CONFIG" geo_custom_url "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb"
+        set_uci_option "$OPENCLASH_CONFIG" geoasn_custom_url "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb"
         set_uci_option "$OPENCLASH_CONFIG" enable_meta_sniffer 1
         set_uci_option "$OPENCLASH_CONFIG" enable_meta_sniffer_pure_ip 1
         set_uci_option "$OPENCLASH_CONFIG" smart_prefer_asn 1
@@ -649,6 +686,8 @@ apply_tweaks() {
         echo "   - 统一延迟: 开启"
         echo "   - 进程规则: OFF"
         echo "   - Geodata 加载: 低内存模式"
+        echo "   - Geodata 模式: mmdb (Country.mmdb + ASN), 非 dat"
+        echo "   - Geodata 源: MetaCubeX/meta-rules-dat"
         echo "   - 流量探测: 开启"
         echo "   - 嗅探纯 IP: 开启"
         echo "   - ASN 优先: 开启"
