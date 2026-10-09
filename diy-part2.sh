@@ -702,12 +702,21 @@ apply_tweaks() {
         # tproxy_port / enable_udp_proxy / intranet_allowed / log_level 等。
         #
         # 改用 uci-defaults 在首次启动时"叠加"设置, 包默认值全部保留。
-        local OPENCLASH_DEFAULTS="files/etc/uci-defaults/99-openclash-preset"
+        #
+        # ⚠️ 文件名必须以 zz- 开头, 不能是 99-:
+        #    /etc/init.d/boot 的 uci_apply_defaults() 实现是
+        #        files="$(ls)"; for file in $files; do ( . "./$(basename $file)" ); done
+        #    即按【字典序】依次 source。OpenClash 自己的脚本叫 luci-openclash,
+        #    它会在其中生成随机的 @authentication 密码与 dashboard_password。
+        #    若我们排在它前面 (原名 99-openclash-preset), 它随后又会重新生成,
+        #    禁用就失效了。改成 zz- 前缀可保证最后执行, 覆盖掉它生成的随机值。
+        local OPENCLASH_DEFAULTS="files/etc/uci-defaults/zz-openclash-preset"
         mkdir -p files/etc/uci-defaults
         {
             echo '#!/bin/sh'
             echo '# 由 diy-part2.sh 生成 —— OpenClash 预设'
             echo '# 只 set 需要覆盖的项, 其余保留包 /etc/config/openclash 的默认值'
+            echo '# zz- 前缀用于排在 luci-openclash 之后执行 (原因见 diy-part2.sh 注释)'
             echo ''
         } > "$OPENCLASH_DEFAULTS"
 
@@ -750,13 +759,38 @@ apply_tweaks() {
         # fakeip 缓存不持久化, 避免周期性写闪存 (重启后重建映射)
         oc_set store_fakeip 0
 
+        # 仅内网可访问管理端口 (显式固定为默认值)
+        # LuCI 原文: "Only intranet allowed" —— When Enabled, The Control Panel
+        # And The Connection Broker Port Will Not Be Accessible From The Public
+        # Network。即 1 = 挡公网、只留内网; 设 0 反而会开放到公网, 不要改。
+        oc_set intranet_allowed 1
+
+        # 关闭 OpenClash 首次启动时随机生成的代理认证与面板密码。
+        # 生成位置 root/etc/uci-defaults/luci-openclash:
+        #   if [ -z "$(uci_get_config "dashboard_password")" ]; then  ...随机 8 位...  fi
+        #   if [ -z "$(uci -q get openclash.@authentication[0])" ]; then 建段+随机密码 fi
+        # 两处都有 -z 守卫 (只在值为空时生成), 而本脚本排在它之后执行(zz-),
+        # 所以这里的赋值是最终值, 不会被重新生成。
+        {
+            echo ''
+            echo '# 代理认证: 关闭 (保留条目, 仅置 enabled=0; 两个消费点都要求 enabled=="1")'
+            echo '[ -n "$(uci -q get openclash.@authentication[0])" ] || uci -q add openclash authentication'
+            echo "uci -q set openclash.@authentication[0].enabled='0'"
+            echo ''
+            echo '# 面板密码 (mihomo secret): 置空即不校验'
+            echo "uci -q set openclash.config.dashboard_password=''"
+        } >> "$OPENCLASH_DEFAULTS"
+
         echo 'uci -q commit openclash' >> "$OPENCLASH_DEFAULTS"
         echo 'exit 0' >> "$OPENCLASH_DEFAULTS"
         chmod 755 "$OPENCLASH_DEFAULTS"
 
-        if [ "$(grep -c "^uci -q set openclash.config\." "$OPENCLASH_DEFAULTS")" -ge 15 ] \
-           && grep -q "openclash.config.proxy_mode='rule'" "$OPENCLASH_DEFAULTS"; then
+        if [ "$(grep -c "^uci -q set openclash" "$OPENCLASH_DEFAULTS")" -ge 15 ] \
+           && grep -q "openclash.config.proxy_mode='rule'" "$OPENCLASH_DEFAULTS" \
+           && grep -q "openclash.@authentication\[0\].enabled='0'" "$OPENCLASH_DEFAULTS" \
+           && grep -q "openclash.config.dashboard_password=''" "$OPENCLASH_DEFAULTS"; then
             echo "✅ OpenClash 预设已生成: $OPENCLASH_DEFAULTS"
+            echo "   (含关闭随机生成的代理认证与面板密码)"
         else
             echo "⚠️ OpenClash 预设生成异常, 请检查 $OPENCLASH_DEFAULTS"
         fi
@@ -781,6 +815,8 @@ apply_tweaks() {
         echo "   - ASN 优先: 开启"
         echo "   - 遵循规则: 开启"
         echo "   - Fake-IP 持久化: 关闭 (不写闪存)"
+        echo "   - 仅内网可访问管理端口: 开启 (intranet_allowed=1, 挡公网)"
+        echo "   - 代理认证 / 面板密码: 已关闭 (不再随机生成)"
 
         # 下载最新 Zashboard 面板替换预置版本
         local ZASHBOARD_URL="https://github.com/Zephyruso/zashboard/releases/latest/download/dist-cdn-fonts.zip"

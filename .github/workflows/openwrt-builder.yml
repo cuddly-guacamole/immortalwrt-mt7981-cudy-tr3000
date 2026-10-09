@@ -412,12 +412,17 @@ jobs:
 
           # proxy_mode 必须存在: 它是 init 脚本传给 yml_change.sh 的第 10 个参数,
           # 最终成为 mihomo 的 mode, 缺失会导致 "Parse config error: invalid mode"
-          if check_preset "files/etc/uci-defaults/99-openclash-preset" \
+          # 同时校验已关闭随机生成的代理认证与面板密码 (文件名 zz- 前缀保证
+          # 排在 luci-openclash 之后执行, 否则禁用会被它重新生成)
+          if check_preset "files/etc/uci-defaults/zz-openclash-preset" \
               'openclash.config.proxy_mode' \
               'openclash.config.small_flash_memory' \
               'openclash.config.en_mode' \
-              'openclash.config.geo_custom_url' ; then
-            PRESET_LINE="${PRESET_LINE}- ✅ OpenClash 预设齐全 (含 proxy_mode)"$'\n'
+              'openclash.config.geo_custom_url' \
+              'openclash.config.intranet_allowed' \
+              "openclash.@authentication[0].enabled='0'" \
+              "openclash.config.dashboard_password=''" ; then
+            PRESET_LINE="${PRESET_LINE}- ✅ OpenClash 预设齐全 (含 proxy_mode / 已关随机密码)"$'\n'
           else
             TOTAL_FAIL=$((TOTAL_FAIL+1))
             PRESET_LINE="${PRESET_LINE}- ❌ OpenClash 预设异常 (详见上方日志)"$'\n'
