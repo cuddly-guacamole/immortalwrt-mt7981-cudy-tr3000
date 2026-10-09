@@ -145,19 +145,18 @@ else
     echo "ℹ️ 未找到 $OPENCLASH_GEOSITE (上游可能已改名或移除)"
 fi
 
-# 预置 GeoIP / ASN 数据文件, 避免 mihomo 首次启动时直连 github 下载
+# 预置 GeoIP / ASN 数据文件 (可选, 默认关闭)
 #
 # 背景: mihomo 在启动阶段就会拉取 geox 数据, 那时代理还没起来, 走的是直连。
-# MetaCubeX 的数据只发布在 release 资产上, 无法用 jsdelivr 镜像, 国内经常拉不动。
-# OpenClash 自带的 Country.mmdb 只有 205 KB (alecthw 的 lite 版, 仅含中国 IP),
-# 覆盖不到其它国家的 GEOIP 规则。
+# 因此 geox-url 必须指向国内可直连的地址 —— 见下方预设里的 jsdelivr CDN。
+# 本函数只是备选方案: 若希望设备完全离线可用, 可在编译时把数据写进固件。
+# 注意 jsdelivr 单文件上限 20 MB, geoip.dat 约 15.8 MB 已接近该上限。
 #
-# 做法: 编译时下载好, 放进 files/etc/openclash/ 覆盖包内版本。
 # 文件名与 OpenClash 使用的路径一致 (见 init 脚本 ipdb_path / asn_path)。
 # 下载失败时不写入, 保留包内自带的 lite 版作为兜底, 不影响构建。
 GEO_DIR="files/etc/openclash"
-GEO_MMDB_URL="https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb"
-GEO_ASN_URL="https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb"
+GEO_MMDB_URL="https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb"
+GEO_ASN_URL="https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb"
 
 prefetch_geodata() {
     local URL="$1" DST="$2" LABEL="$3" TMP="/tmp/geo_prefetch.tmp"
@@ -179,11 +178,19 @@ prefetch_geodata() {
     return 0
 }
 
-if grep -q "CONFIG_PACKAGE_luci-app-openclash=y" .config 2>/dev/null; then
-    prefetch_geodata "$GEO_MMDB_URL" "Country.mmdb" "GeoIP 库 (country.mmdb)" || true
-    prefetch_geodata "$GEO_ASN_URL"  "ASN.mmdb"     "ASN 库 (GeoLite2-ASN.mmdb)" || true
+# 默认关闭: geox-url 已指向 jsdelivr CDN, 首启动可直连下载 (实测 HTTP 200),
+# 预置会把 15.8 MB 写进 flash 却没带来额外收益。
+# 只有在希望设备完全离线可用 / CDN 不可信时, 才设 PREFETCH_GEODATA=true 打开。
+PREFETCH_GEODATA="${PREFETCH_GEODATA:-false}"
+if [ "$PREFETCH_GEODATA" = "true" ]; then
+    if grep -q "CONFIG_PACKAGE_luci-app-openclash=y" .config 2>/dev/null; then
+        prefetch_geodata "$GEO_MMDB_URL" "Country.mmdb" "GeoIP 库 (country.mmdb)" || true
+        prefetch_geodata "$GEO_ASN_URL"  "ASN.mmdb"     "ASN 库 (GeoLite2-ASN.mmdb)" || true
+    else
+        echo "ℹ️ luci-app-openclash 未启用, 跳过 geodata 预置"
+    fi
 else
-    echo "ℹ️ luci-app-openclash 未启用, 跳过 geodata 预置"
+    echo "ℹ️ geodata 预置未开启 (PREFETCH_GEODATA=false), 由 mihomo 从 jsdelivr CDN 下载"
 fi
 
 # ============================================================
@@ -706,8 +713,11 @@ apply_tweaks() {
         # 即不使用体积巨大的 geosite.dat / geoip.dat, 改用 Country.mmdb + ASN mmdb。
         # 配合下方移除包内自带的 GeoSite.dat (9.9 MB)。
         set_uci_option "$OPENCLASH_CONFIG" enable_geoip_dat 0
-        set_uci_option "$OPENCLASH_CONFIG" geo_custom_url "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb"
-        set_uci_option "$OPENCLASH_CONFIG" geoasn_custom_url "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb"
+        # 走 jsdelivr CDN 而非 github release: release 资产要经 github 重定向链,
+        # 国内直连(首启动时代理尚未起来)经常失败; jsdelivr 可直连 (实测 HTTP 200)。
+        # MetaCubeX/meta-rules-dat 的 release 分支同时提供 mmdb 与 ASN 文件。
+        set_uci_option "$OPENCLASH_CONFIG" geo_custom_url "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb"
+        set_uci_option "$OPENCLASH_CONFIG" geoasn_custom_url "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb"
         set_uci_option "$OPENCLASH_CONFIG" enable_meta_sniffer 1
         set_uci_option "$OPENCLASH_CONFIG" enable_meta_sniffer_pure_ip 1
         set_uci_option "$OPENCLASH_CONFIG" smart_prefer_asn 1
