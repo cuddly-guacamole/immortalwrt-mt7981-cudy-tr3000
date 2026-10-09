@@ -86,6 +86,35 @@
 
 ---
 
+## 构建兼容性：RELR 已关闭
+
+上游 25.12 默认开启 `CONFIG_PKG_DT_RELR`，会向 `TARGET_LDFLAGS` 注入 `-zpack-relative-relocs`。
+该标志在 aarch64 上会被链接器忽略，并输出一行警告：
+
+| 项 | 内容 |
+|---|---|
+| 链接器输出 | `ld.bfd: warning: -z pack-relative-relocs ignored` |
+| 链接结果 | 成功（退出码 0），仅 stderr 非空 |
+
+问题出在 `ruby` 3.4 的 `configure`：它用 `RUBY_WERROR_FLAG` 包裹「LDFLAGS 是否有效」的检测，
+而该检测要求链接的 **stderr 必须为空**（`test ! -s conftest.err`）。于是这行警告会让
+`configure` 直接报错并中止：
+
+```
+checking whether LDFLAGS is valid... no
+configure: error: something wrong with LDFLAGS="..."
+    ERROR: package/feeds/packages/ruby failed to build.
+```
+
+`ruby` 是 OpenClash 的硬依赖（`YAML.rb` 负责生成 mihomo 配置），无法移除。
+由于该标志在 aarch64 上本就被忽略，配置中已显式关闭 `CONFIG_PKG_DT_RELR`，
+预检会校验它必须处于关闭状态。
+
+> 同类症状的判断方法：凡是「链接成功但 stderr 非空」导致的 autoconf 检测失败，
+> 都可用 `-zpack-relative-relocs` 这条线索反查。
+
+---
+
 ## 第三方软件包
 
 - [OpenClash](https://github.com/vernesong/OpenClash)

@@ -303,7 +303,7 @@ jobs:
             LINES=""
 
             CRITICAL_PRESENT="CONFIG_TARGET_MULTI_PROFILE CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_${EXPECT_DEV} CONFIG_PACKAGE_kmod-mt_wifi CONFIG_PACKAGE_mtwifi-cfg-ucode CONFIG_PACKAGE_luci-app-mtwifi-cfg"
-            CRITICAL_ABSENT="CONFIG_KERNEL_USER_NS CONFIG_PACKAGE_kmod-sctp CONFIG_PACKAGE_mtwifi-cfg"
+            CRITICAL_ABSENT="CONFIG_KERNEL_USER_NS CONFIG_PACKAGE_kmod-sctp CONFIG_PACKAGE_mtwifi-cfg CONFIG_PKG_DT_RELR"
             IMPORTANT_PRESENT="CONFIG_PACKAGE_kmod-conninfra CONFIG_PACKAGE_kmod-warp CONFIG_PACKAGE_kmod-mediatek_hnat CONFIG_PACKAGE_luci-app-turboacc-mtk CONFIG_PACKAGE_kmod-tun CONFIG_PACKAGE_luci-app-openclash CONFIG_PACKAGE_luci-theme-aurora CONFIG_PACKAGE_autocore"
 
             for s in $CRITICAL_PRESENT; do
