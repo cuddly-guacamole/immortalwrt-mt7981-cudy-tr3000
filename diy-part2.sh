@@ -73,21 +73,58 @@ rm -rf feeds/luci/luci-app-openclash 2>/dev/null || true
 sed -i -e '/^IMG_PREFIX:=/i BUILD_DATE := $(shell date +%Y%m%d)' \
        -e '/^IMG_PREFIX:=/ s/\($(SUBTARGET)\)/\1-$(BUILD_DATE)/' include/image.mk
 
-# ubootmod ubi 分区改回 112M
+# ubootmod 设备树: ubi 分区改回 112M, 并补回 NMBM + spi-cal 节点
+#
+# (1) 分区大小
 # 上游 25.12 (含官方 openwrt/immortalwrt) 默认 reg = <0x5c0000 0x7a40000> 即 122M,
 # 该值恰好占满整块 NAND 在 0x5c0000 之后的全部剩余空间 (128MiB - 5.75MiB = 122.25MiB),
-# 没有任何坏块替换余量; 且部分 uboot 版本按 112M 布局构建, 分区不一致会导致刷入失败。
+# 没有任何坏块替换余量; 且本机 uboot 的 mtdparts 就是 112M, 分区不一致会导致刷入失败。
 # 112M 保留 10.25MiB 余量, 与历史固件行为一致。
+#
+# (2) NMBM + spi-cal
+# 上游 25.12 的 ubootmod 设备树删掉了整个 &spi_nand 节点, 而本机 uboot
+# (Yuzhii0718 bl-mt798x-dhcpd, VARIANT=ubootmod) 的 NMBM 是开启的:
+#   mtd list   -> 存在 nmbm0, 所有分区挂在 nmbm0 上
+#   env print  -> mtdids=nmbm0=nmbm0, mtdparts=nmbm0:...,114688k(ubi)
+#   启动日志   -> "Initializing NMBM ... NMBM has been successfully attached"
+# uboot 在引导前会校验 Linux FDT 与自身 MTD 布局 / NMBM 模式是否一致, 不一致直接拒绝引导
+# (表现为红灯闪烁后回到 failsafe WEBUI, 且 Initramfs 同样起不来)。
+# 因此必须把该节点补回来, 与 padavanonly 24.10 分支上能正常启动的同名设备树保持一致。
 UBOOTMOD_DTS="target/linux/mediatek/dts/mt7981b-cudy-tr3000-v1-ubootmod.dts"
 if [ -f "$UBOOTMOD_DTS" ]; then
     sed -i 's/reg = <0x5c0000 0x7a40000>;/reg = <0x5c0000 0x7000000>;/' "$UBOOTMOD_DTS"
-    if grep -q 'reg = <0x5c0000 0x7000000>;' "$UBOOTMOD_DTS"; then
-        echo "✅ ubootmod ubi 分区已改为 112M"
+
+    if grep -q 'mediatek,nmbm;' "$UBOOTMOD_DTS"; then
+        echo "ℹ️ ubootmod 设备树已含 NMBM 节点, 跳过注入"
     else
-        echo "⚠️ ubootmod ubi 分区替换未生效, 请检查上游设备树结构"
+        awk '
+            /^&ubi \{/ && !done {
+                print "&spi_nand {"
+                print "\tspi-cal-enable;"
+                print "\tspi-cal-mode = \"read-data\";"
+                print "\tspi-cal-datalen = <7>;"
+                print "\tspi-cal-data = /bits/ 8 <0x53 0x50 0x49 0x4E 0x41 0x4E 0x44>;"
+                print "\tspi-cal-addrlen = <5>;"
+                print "\tspi-cal-addr = /bits/ 32 <0x0 0x0 0x0 0x0 0x0>;"
+                print ""
+                print "\tmediatek,nmbm;"
+                print "\tmediatek,bmt-max-ratio = <1>;"
+                print "\tmediatek,bmt-max-reserved-blocks = <64>;"
+                print "};"
+                print ""
+                done = 1
+            }
+            { print }
+        ' "$UBOOTMOD_DTS" > "$UBOOTMOD_DTS.tmp" && mv "$UBOOTMOD_DTS.tmp" "$UBOOTMOD_DTS"
     fi
+
+    DTS_OK=1
+    grep -q 'reg = <0x5c0000 0x7000000>;' "$UBOOTMOD_DTS" || { echo "⚠️ ubootmod ubi 分区替换未生效, 请检查上游设备树结构"; DTS_OK=0; }
+    grep -q 'mediatek,nmbm;' "$UBOOTMOD_DTS"           || { echo "⚠️ ubootmod NMBM 节点注入未生效"; DTS_OK=0; }
+    grep -q 'spi-cal-enable;' "$UBOOTMOD_DTS"          || { echo "⚠️ ubootmod spi-cal 注入未生效"; DTS_OK=0; }
+    [ "$DTS_OK" = "1" ] && echo "✅ ubootmod 设备树已调整为 112M + NMBM + spi-cal"
 else
-    echo "⚠️ 未找到 $UBOOTMOD_DTS, 跳过 ubi 分区调整"
+    echo "⚠️ 未找到 $UBOOTMOD_DTS, 跳过 uboot 布局调整"
 fi
 
 

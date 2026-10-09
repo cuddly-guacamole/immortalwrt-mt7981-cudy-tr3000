@@ -84,6 +84,22 @@
 
 `CONFIG_TARGET_ROOTFS_INITRAMFS` 已启用（第 6 步依赖它），预检会校验它是否仍然生效。
 
+### 关于 NMBM：固件必须与 U-Boot 匹配
+
+U-Boot 在引导前会校验 **Linux FDT 与自身 MTD 布局 / NMBM 模式是否一致**，不一致会直接拒绝引导——表现是**红灯闪烁后回到 failsafe WEBUI，且连 Initramfs 也起不来**（该校验对任何引导都生效）。
+
+本仓库适配的 U-Boot（`Yuzhii0718/bl-mt798x-dhcpd`，`VARIANT=ubootmod`）**NMBM 是开启的**：
+
+```
+mtd list   -> 存在 nmbm0, 所有分区挂在 nmbm0 上
+env print  -> mtdids=nmbm0=nmbm0, mtdparts=nmbm0:...,114688k(ubi)
+启动日志   -> "Initializing NMBM ... NMBM has been successfully attached"
+```
+
+因此 `diy-part2.sh` 会把上游 25.12 ubootmod 设备树**被删掉的 `&spi_nand` 节点补回来**（`spi-cal-*` + `mediatek,nmbm` + bmt 参数），并把 ubi 改成 112M，与 padavanonly 24.10 分支上能正常启动的同名设备树一致。预检会校验这三项（112M / NMBM / spi-cal）同时存在，缺一即中止构建。
+
+> 注意：上游有提交 `7044345` 要求 Cudy NAND 的 ubootmod 构建**关闭** NMBM——那是为**官方 OpenWrt U-Boot**（不含 NMBM）准备的。本仓库用的是第三方 U-Boot，NMBM 开着，所以固件侧也必须开着，两边必须一致。
+
 ---
 
 ## USB 供电控制

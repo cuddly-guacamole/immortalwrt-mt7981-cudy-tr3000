@@ -327,12 +327,21 @@ jobs:
             done
 
             if [ "$DEV" = "128M-Ubootmod" ]; then
-              if grep -q 'reg = <0x5c0000 0x7000000>;' target/linux/mediatek/dts/mt7981b-cudy-tr3000-v1-ubootmod.dts 2>/dev/null; then
-                echo "  ✅ ubootmod ubi 分区 = 112M"
-              else
-                echo "  ❌ ubootmod ubi 分区不是 112M"
-                FAIL=$((FAIL+1)); LINES="${LINES}- ❌ ubootmod ubi 分区不是 112M"$'\n'
-              fi
+              UBM_DTS="target/linux/mediatek/dts/mt7981b-cudy-tr3000-v1-ubootmod.dts"
+              # uboot 引导前会校验 Linux FDT 与自身 MTD 布局 / NMBM 模式是否一致,
+              # 不一致会直接拒绝引导 (红灯闪烁后回到 failsafe, 连 Initramfs 都起不来)。
+              # 这三项必须同时存在, 缺一不可。
+              check_dts() {
+                if grep -qF "$1" "$UBM_DTS" 2>/dev/null; then
+                  echo "  ✅ ubootmod $2"
+                else
+                  echo "  ❌ ubootmod 缺失: $2"
+                  FAIL=$((FAIL+1)); LINES="${LINES}- ❌ ubootmod 缺失 \`$2\`"$'\n'
+                fi
+              }
+              check_dts 'reg = <0x5c0000 0x7000000>;' 'ubi 分区 = 112M'
+              check_dts 'mediatek,nmbm;'               'NMBM 节点 (须与 uboot 的 nmbm0 匹配)'
+              check_dts 'spi-cal-enable;'              'spi-cal 节点'
             fi
 
             for s in $IMPORTANT_PRESENT; do
