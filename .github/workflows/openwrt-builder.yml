@@ -101,9 +101,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: 🛠️ Init Environment
+        timeout-minutes: 15
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libncurses-dev build-essential git wget python3 bzip2
+          sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update -qq
+          sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y --no-install-recommends libncurses-dev build-essential git wget python3 bzip2
           sudo mkdir -p /workdir
           sudo chown $USER:$GROUPS /workdir
 
@@ -190,10 +191,23 @@ jobs:
           docker-images: true
           swap-storage: true
 
+      # ⏱️ timeout-minutes 兜底 + apt 重试参数
+      #
+      # 2026-10-09 那次这一步在 GitHub 托管 runner 上跑了 98m40s (历史正常值:
+      # 1m14s / 1m21s / 1m36s / 2m03s / 2m35s, 即约 58 倍)。原因是那次 runner 到
+      # apt 源被严重限速或反复重试; 而 -qq 会把进度全部吞掉, 日志里什么都看不到,
+      # 表现就是"静默卡住 1.6 小时"。没有超时限制时会一直白烧 runner 时间。
+      #
+      #   timeout-minutes: 25          卡住就快速失败, 而不是无限等下去
+      #   Acquire::Retries=5           源抖动时自动重试 5 次
+      #   Acquire::http::Timeout=30    单次连接 30s 超时, 避免挂死
+      #
+      # 正常耗时 1~3 分钟, 25 分钟是很宽松的上限。
       - name: 🛠️ Init Environment
+        timeout-minutes: 25
         run: |
-          sudo -E apt-get -qq update
-          sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libpython3-dev libreadline-dev libssl-dev libtool libyaml-dev libz-dev lld llvm lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd
+          sudo -E apt-get -qq -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update
+          sudo -E apt-get -qq -y -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libpython3-dev libreadline-dev libssl-dev libtool libyaml-dev libz-dev lld llvm lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd
           sudo timedatectl set-timezone "$TZ"
           sudo mkdir -p /workdir
           sudo chown $USER:$GROUPS /workdir
