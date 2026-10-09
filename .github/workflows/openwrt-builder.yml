@@ -423,6 +423,29 @@ jobs:
             PRESET_LINE="${PRESET_LINE}- ❌ OpenClash 预设异常 (详见上方日志)"$'\n'
           fi
 
+          # 7. 校验 Zashboard 面板解包结果
+          #    上游 dist-cdn-fonts.zip 内部只含一层 dist/, 若未上移, 面板会停留在
+          #    包内自带的旧版本 (实测 1.48.0 vs 上游 3.29.1), 属静默失效。
+          ZASH_DIR="files/usr/share/openclash/ui/zashboard"
+          if [ -d "$ZASH_DIR/dist" ]; then
+            echo "  ❌ Zashboard 解包多了一层 dist/ (面板会停留在包内旧版本)"
+            TOTAL_FAIL=$((TOTAL_FAIL+1))
+            PRESET_LINE="${PRESET_LINE}- ❌ Zashboard 解包多了一层 dist/"$'\n'
+          elif [ -f "$ZASH_DIR/index.html" ]; then
+            ZASH_JS=$(grep -oE 'src="\./assets/[^"]+"' "$ZASH_DIR/index.html" | head -1 | sed 's|src="\./||;s|"$||')
+            if [ -n "$ZASH_JS" ] && [ -f "$ZASH_DIR/$ZASH_JS" ]; then
+              echo "  ✅ Zashboard 面板解包正确 (index.html -> $ZASH_JS)"
+              PRESET_LINE="${PRESET_LINE}- ✅ Zashboard 面板解包正确"$'\n'
+            else
+              echo "  ❌ Zashboard index.html 引用的资源缺失: $ZASH_JS"
+              TOTAL_FAIL=$((TOTAL_FAIL+1))
+              PRESET_LINE="${PRESET_LINE}- ❌ Zashboard 面板不完整 (引用资源缺失)"$'\n'
+            fi
+          else
+            echo "  ⚠️ 未找到 $ZASH_DIR/index.html (下载失败时回退包内自带版本)"
+            PRESET_LINE="${PRESET_LINE}- ⚠️ Zashboard 未更新 (使用包内自带版本)"$'\n'
+          fi
+
           {
             echo "## 预检结果"
             echo ""

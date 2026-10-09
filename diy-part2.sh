@@ -791,8 +791,28 @@ apply_tweaks() {
             rm -rf "$ZASHBOARD_DIR"
             mkdir -p "$ZASHBOARD_DIR"
             unzip -q -o /tmp/zashboard.zip -d "$ZASHBOARD_DIR"
+
+            # 上游 dist-cdn-fonts.zip 内部【只含一层 dist/ 目录】(实测 33 个文件
+            # 全在 dist/ 下), 直接解到目标目录会得到 <目标>/dist/index.html,
+            # 而 OpenClash 查找的是 <目标>/index.html —— 结果面板仍是包内自带的
+            # 旧版本 (实测表现为一直停留在 v1.48.0, 而上游已到 v3.29.x)。
+            # 故解包后把 dist/ 的内容上移一层。
+            if [ ! -f "$ZASHBOARD_DIR/index.html" ] && [ -f "$ZASHBOARD_DIR/dist/index.html" ]; then
+                echo "   检测到解包结果多了一层 dist/, 正在上移..."
+                for f in "$ZASHBOARD_DIR/dist"/* "$ZASHBOARD_DIR/dist"/.[!.]*; do
+                    [ -e "$f" ] || continue
+                    mv -f "$f" "$ZASHBOARD_DIR/" 2>/dev/null
+                done
+                rmdir "$ZASHBOARD_DIR/dist" 2>/dev/null
+            fi
+
             rm -f /tmp/zashboard.zip
-            echo "✅ Zashboard 面板已更新到: $ZASHBOARD_DIR"
+
+            if [ -f "$ZASHBOARD_DIR/index.html" ]; then
+                echo "✅ Zashboard 面板已更新到: $ZASHBOARD_DIR"
+            else
+                echo "⚠️ Zashboard 解包后未找到 index.html, 面板可能仍是包内自带旧版本"
+            fi
         else
             echo "⚠️ Zashboard 下载失败，将使用 OpenClash 预置版本"
             rm -f /tmp/zashboard.zip
