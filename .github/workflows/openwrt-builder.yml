@@ -374,12 +374,42 @@ jobs:
             REPORT="${REPORT}${LINES}"$'\n'
           done
 
+          # 6. 校验预置的防火墙 / DNS 设置
+          #    这些是 UCI 运行时配置, 不在 .config 里, 上面的符号校验覆盖不到。
+          #    文件由 diy-part2.sh 生成, 若丢失或选项不全, 设置会静默失效。
+          PRESET_FILE="files/etc/uci-defaults/99-custom-network-settings"
+          PRESET_MISSING=""
+          if [ -f "$PRESET_FILE" ]; then
+            for s in \
+              'firewall.@defaults[0].drop_invalid' \
+              'firewall.@defaults[0].fullcone6' \
+              'firewall.@defaults[0].flow_offloading' \
+              'firewall.@defaults[0].flow_offloading_hw' \
+              'dhcp.@dnsmasq[0].stripmac' \
+              'dhcp.@dnsmasq[0].stripsubnet' ; do
+              grep -Fq "$s" "$PRESET_FILE" || PRESET_MISSING="$PRESET_MISSING $s"
+            done
+            if [ -z "$PRESET_MISSING" ]; then
+              echo "  ✅ 防火墙/DNS 预设 6 项齐全 ($PRESET_FILE)"
+              PRESET_LINE="- ✅ 防火墙/DNS 预设 6 项齐全"
+            else
+              echo "  ❌ 防火墙/DNS 预设缺项:$PRESET_MISSING"
+              TOTAL_FAIL=$((TOTAL_FAIL+1))
+              PRESET_LINE="- ❌ 防火墙/DNS 预设缺项:$PRESET_MISSING"
+            fi
+          else
+            echo "  ❌ 未找到 $PRESET_FILE (防火墙/DNS 预设未生效)"
+            TOTAL_FAIL=$((TOTAL_FAIL+1))
+            PRESET_LINE="- ❌ 未找到 $PRESET_FILE (防火墙/DNS 预设未生效)"
+          fi
+
           {
             echo "## 预检结果"
             echo ""
             echo "关键问题合计 **$TOTAL_FAIL** 项 · 次要问题合计 **$TOTAL_WARN** 项"
             echo ""
             echo "$REPORT"
+            echo "$PRESET_LINE"
             echo "内核提权缓解: USER_NS 与 SCTP 已关闭 (IPsec AH 由 generic config 默认关闭)"
           } >> "$GITHUB_STEP_SUMMARY"
 

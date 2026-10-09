@@ -947,6 +947,91 @@ apply_security_hardening() {
 
 
 # ============================================================
+# 预置防火墙与 DNS 默认设置 (uci-defaults)
+# ============================================================
+# 下列 6 项都是 UCI 运行时配置, 不属于 build config (.config), 无法写进
+# config/*.config, 因此用 uci-defaults 在首次启动时写入。
+#
+# 之所以不用 files/etc/config/firewall 直接覆盖: firewall4 的默认配置来自其
+# git 源码 (PKG_SOURCE_PROTO:=git, 见 firewall4/Makefile, 默认配置为
+# root/etc/config/firewall), 覆盖会丢掉上游后续新增的默认项; dnsmasq 的
+# dhcp.conf 虽在源码树里, 但两者统一用同一机制更清晰、也便于日后维护。
+apply_system_defaults() {
+    local UCI_DIR="files/etc/uci-defaults"
+    local UCI_FILE="$UCI_DIR/99-custom-network-settings"
+
+    echo ""
+    echo "=========================================="
+    echo "⚙️ 预置防火墙与 DNS 默认设置"
+    echo "=========================================="
+
+    mkdir -p "$UCI_DIR"
+
+    cat > "$UCI_FILE" <<'UCIEOF'
+#!/bin/sh
+# 由 diy-part2.sh 生成 —— 预置防火墙与 DNS 默认设置
+# uci-defaults 只在"首次启动"时执行一次, 执行后本文件会被自动删除;
+# 带配置升级 (sysupgrade 不带 -n) 时不会重跑, 已写入的设置继续有效。
+
+# ---------- 防火墙 (firewall4, config defaults) ----------
+[ -n "$(uci -q get firewall.@defaults[0])" ] || uci -q add firewall defaults
+
+# 1. 丢弃无效数据包
+#    fw4 规则: ct state vmap { established:accept, related:accept, invalid:drop }
+uci -q set firewall.@defaults[0].drop_invalid='1'
+
+# 2. 启用 FullCone NAT6
+#    对应 ImmortalWrt 的 fullcone 补丁 (defaults.fullcone6), 只作用于 IPv6;
+#    IPv4 的 defaults.fullcone 在 ImmortalWrt 中默认已经是 1
+uci -q set firewall.@defaults[0].fullcone6='1'
+
+# 3. 硬件流量卸载
+#    fw4.uc 的 resolve_offload_devices() 要求 flow_offloading=1 才会创建
+#    flowtable; ruleset.uc 再依据 flow_offloading_hw=1 追加 "flags offload"。
+#    两者缺一不可 —— 只设 flow_offloading_hw 不会生效。
+uci -q set firewall.@defaults[0].flow_offloading='1'
+uci -q set firewall.@defaults[0].flow_offloading_hw='1'
+
+# ---------- DNS (dnsmasq) ----------
+# dnsmasq.init 中的映射:
+#   append_bool "$cfg" stripmac   "--strip-mac"
+#   append_bool "$cfg" stripsubnet "--strip-subnet"
+# 4. 在转发查询之前移除 MAC 地址
+uci -q set dhcp.@dnsmasq[0].stripmac='1'
+# 5. 在转发查询之前移除子网地址
+uci -q set dhcp.@dnsmasq[0].stripsubnet='1'
+
+uci -q commit firewall
+uci -q commit dhcp
+
+exit 0
+UCIEOF
+
+    chmod 755 "$UCI_FILE"
+
+    # 结果校验: 6 个选项必须都出现在生成的文件里
+    local MISSING=""
+    local KEY
+    for KEY in \
+        'firewall.@defaults[0].drop_invalid' \
+        'firewall.@defaults[0].fullcone6' \
+        'firewall.@defaults[0].flow_offloading' \
+        'firewall.@defaults[0].flow_offloading_hw' \
+        'dhcp.@dnsmasq[0].stripmac' \
+        'dhcp.@dnsmasq[0].stripsubnet' ; do
+        grep -Fq "$KEY" "$UCI_FILE" || MISSING="$MISSING $KEY"
+    done
+
+    if [ -z "$MISSING" ]; then
+        echo "✅ 已生成 $UCI_FILE (防火墙 4 项 + DNS 2 项)"
+        echo "   → 首次启动时自动应用, 无需手动配置"
+    else
+        echo "⚠️ 以下选项未写入:$MISSING"
+    fi
+}
+
+
+# ============================================================
 # 主执行流程: 依次调用各个函数
 # ============================================================
 echo ""
@@ -984,6 +1069,7 @@ else
 fi
 
 apply_security_hardening
+apply_system_defaults
 
 echo ""
 echo "=========================================="
@@ -993,4 +1079,5 @@ echo "📋 最终状态："
 echo "   mihomo 内核:       $([ "$MIHOMO_INTEGRATED" = "true" ] && echo '已集成 ✅' || echo '未集成')"
 echo "   AdGuardHome 内核:  $([ "$ADGUARDHOME_INTEGRATED" = "true" ] && echo '已集成 ✅' || echo '未集成')"
 echo "   easytier 内核:     $([ "$EASYTIER_INTEGRATED" = "true" ] && echo '已集成 ✅' || echo '未集成')"
+echo "   防火墙/DNS 预设:   $([ -x files/etc/uci-defaults/99-custom-network-settings ] && echo '已预置 ✅' || echo '未预置')"
 echo "=========================================="
