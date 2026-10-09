@@ -304,7 +304,7 @@ jobs:
 
             CRITICAL_PRESENT="CONFIG_TARGET_MULTI_PROFILE CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_${EXPECT_DEV} CONFIG_PACKAGE_kmod-mt_wifi CONFIG_PACKAGE_mtwifi-cfg-ucode CONFIG_PACKAGE_luci-app-mtwifi-cfg"
             CRITICAL_ABSENT="CONFIG_KERNEL_USER_NS CONFIG_PACKAGE_kmod-sctp CONFIG_PACKAGE_mtwifi-cfg CONFIG_PKG_DT_RELR"
-            IMPORTANT_PRESENT="CONFIG_PACKAGE_kmod-conninfra CONFIG_PACKAGE_kmod-warp CONFIG_PACKAGE_kmod-mediatek_hnat CONFIG_PACKAGE_luci-app-turboacc-mtk CONFIG_PACKAGE_kmod-tun CONFIG_PACKAGE_luci-app-openclash CONFIG_PACKAGE_luci-theme-aurora CONFIG_PACKAGE_autocore"
+            IMPORTANT_PRESENT="CONFIG_PACKAGE_kmod-conninfra CONFIG_PACKAGE_kmod-warp CONFIG_PACKAGE_kmod-mediatek_hnat CONFIG_PACKAGE_luci-app-turboacc-mtk CONFIG_PACKAGE_kmod-tun CONFIG_PACKAGE_luci-app-openclash CONFIG_PACKAGE_luci-theme-aurora CONFIG_PACKAGE_autocore CONFIG_TARGET_ROOTFS_INITRAMFS"
 
             for s in $CRITICAL_PRESENT; do
               if grep -qE "^${s}=y$" .config; then
@@ -431,7 +431,23 @@ jobs:
           done
 
           echo "📥 Collecting artifacts"
-          find bin/targets/ -name "*sysupgrade.bin" -exec cp {} $GITHUB_WORKSPACE/firmware_collection/ \;
+          mkdir -p "$GITHUB_WORKSPACE/firmware_collection"
+
+          # 128M-Ubootmod 产出的是 FIT 格式 (sysupgrade.itb), 128M 产出 sysupgrade.bin,
+          # 只收 *.bin 会让 ubootmod 机型一个文件都收不到。
+          # 另外必须收 initramfs/recovery 镜像 (U-Boot failsafe 引导用) 与
+          # OpenWrt U-Boot 工件 (preloader.bin / bl31-uboot.fip), 它们是 ubootmod 刷机流程的必要文件。
+          for pat in '*sysupgrade.bin' '*sysupgrade.itb' '*initramfs*' '*preloader.bin' '*bl31-uboot.fip'; do
+            find bin/targets/ -type f -name "$pat" -exec cp -f {} "$GITHUB_WORKSPACE/firmware_collection/" \;
+          done
+
+          echo "--- 收集到的固件 ---"
+          ls -lh "$GITHUB_WORKSPACE/firmware_collection/" || true
+
+          if ! ls "$GITHUB_WORKSPACE"/firmware_collection/*sysupgrade.* >/dev/null 2>&1; then
+            echo "❌ 未收集到任何 sysupgrade 固件, 请检查设备档案与产物命名"
+            exit 1
+          fi
 
           echo "status=success" >> $GITHUB_OUTPUT
 

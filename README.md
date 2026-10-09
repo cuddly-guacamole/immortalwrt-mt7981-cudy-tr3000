@@ -55,6 +55,37 @@
 
 ---
 
+## 刷机流程（U-Boot / FIT）
+
+**注意镜像格式变了**：本仓库 ubootmod 固件是 **FIT 格式（`sysupgrade.itb`）**，而 padavanonly 24.10 分支的 ubootmod 产出的是 **`sysupgrade.bin`（`sysupgrade-tar`，`KERNEL_IN_UBI=1`）**。两者对应的 U-Boot 引导流程不同，请按下面步骤操作。
+
+`firmware_collection/` 中的产物：
+
+| 文件 | 用途 |
+|---|---|
+| `*sysupgrade.itb` | 主固件（FIT），**这是要刷的固件** |
+| `*initramfs-recovery.itb` | 恢复镜像，U-Boot failsafe 引导用 |
+| `*sysupgrade.bin` | 仅 128M（非 ubootmod）机型产出 |
+| `*preloader.bin` / `*bl31-uboot.fip` | OpenWrt U-Boot 工件（BL2 / FIP） |
+
+操作步骤：
+
+1. **先用 failsafe Web UI 备份全部 flash 与分区**（`http://failsafe.lan`）——这一步非常重要。
+2. Web UI 中更新 BL2，刷入 `*preloader.bin`。
+3. Web UI 中更新 U-Boot，刷入 FIT 版本的 `*bl31-uboot.fip`。
+4. **用 Web UI 的 Flash Editor 擦除 UBI 分区**（或命令行 `mtd erase ubi`）。仅 NAND 设备需要这一步。
+   > 这一步是关键。历史固件（padavanonly 分支）为该机型启用了 MTK-NMBM，而 NMBM 会在 NAND 上维护坏块表并调整块映射。上游有明确提交（`7044345`，"mediatek: cudy nand: fix wrong nmbm configuration"）指出 Cudy NAND 的 ubootmod 构建开启 NMBM 会导致启动时报 `Signature not found`。擦除 ubi 可清掉这些残留状态。
+5. 在固件升级页刷入 `*sysupgrade.itb`。若无法启动，继续下一步。
+6. 用 failsafe Web UI 的 Initramfs 引导 `*initramfs-recovery.itb`。
+7. 若能正常进入系统，再次在固件升级页刷入 `*sysupgrade.itb`。
+
+> 该 U-Boot 带 `CONFIG_MTK_WEB_FAILSAFE_AFTER_BOOT_FAILURE`，启动失败会自动进入 Web 恢复界面，可反复重试。
+> 建议保留一份历史可用的 `sysupgrade.bin` 作为回退。
+
+`CONFIG_TARGET_ROOTFS_INITRAMFS` 已启用（第 6 步依赖它），预检会校验它是否仍然生效。
+
+---
+
 ## USB 供电控制
 
 25.12 上游设备树中 USB VBUS 已改为 `regulator-fixed`（`usb-vbus`，GPIO 9，`regulator-boot-on`），开机默认供电。
