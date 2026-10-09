@@ -985,12 +985,15 @@ uci -q set firewall.@defaults[0].drop_invalid='1'
 #    IPv4 的 defaults.fullcone 在 ImmortalWrt 中默认已经是 1
 uci -q set firewall.@defaults[0].fullcone6='1'
 
-# 3. 硬件流量卸载
-#    fw4.uc 的 resolve_offload_devices() 要求 flow_offloading=1 才会创建
-#    flowtable; ruleset.uc 再依据 flow_offloading_hw=1 追加 "flags offload"。
-#    两者缺一不可 —— 只设 flow_offloading_hw 不会生效。
-uci -q set firewall.@defaults[0].flow_offloading='1'
-uci -q set firewall.@defaults[0].flow_offloading_hw='1'
+# 3. 流量卸载类型 = 无
+#    不使用 firewall4 的 flowtable 卸载: 本机 turboacc 的 fastpath 已启用
+#    mediatek_hnat (MTK 开源硬件加速引擎; 其 uci-defaults 检测到 mtkhnat.ko
+#    即自动选它), 两条路径最终都编程同一个 PPE, 功能重叠。
+#    显式写 0 以固定意图, 避免上游将来改默认值时被静默打开。
+#    参考: fw4.uc 的 resolve_offload_devices() 要求 flow_offloading=1 才会
+#    创建 flowtable, ruleset.uc 再依据 flow_offloading_hw=1 追加 flags offload。
+uci -q set firewall.@defaults[0].flow_offloading='0'
+uci -q set firewall.@defaults[0].flow_offloading_hw='0'
 
 # ---------- DNS (dnsmasq) ----------
 # dnsmasq.init 中的映射:
