@@ -866,6 +866,42 @@ apply_tweaks() {
                 echo "   $OC_WATCHDOG"
                 grep -n 'SKIP_PROXY_ADDRESS_INTERVAL' "$OC_WATCHDOG" | head -3
             fi
+
+            # --- 小巧思1c: 把 skip_proxies_address 里的 HTTP 客户端从 curl 换成 busybox wget ---
+            #
+            # 背景 (实测, 2026-10-10):
+            #   skip_proxies_address() 内嵌的 ruby 对每个节点域名都要 fork 一次:
+            #       curl -s -m 3 -H "Authorization: Bearer ..." \
+            #            http://127.0.0.1:$cn_port/dns/query?name=...&type=... | jsonfilter
+            #   在这台 MT7981 上, 单次 curl 的 fork+exec 就要约 1.1 秒 (完整版 curl 带
+            #   TLS 库, 启动开销大); 而 busybox 的 wget 是同一个二进制直接跑, 约 50ms。
+            #
+            #   实测各 20 次:
+            #       curl -s -m 3 ...        22 秒   (~1.1 s/次)
+            #       curl | jsonfilter       21 秒   (~1.05 s/次)
+            #       wget -qO- -T 3 ...       1 秒   (~50 ms/次)
+            #       wget | grep -o           0 秒
+            #   34 个节点域名 x 2 (A+AAAA) = 68 次 popen x 1.05s / 2 核 ~= 36 秒 (实测 37 秒)
+            #   换成 wget 后整个 skip_proxies_address 由 36 秒降到 4 秒 (9 倍)。
+            #
+            #   只替换 HTTP 客户端, 保留 --header 传认证头, 解析仍用 jsonfilter, 行为等价。
+            #   实测两种写法产出的 localnetwork IP 集合一致 (wget 版还多解析出 1 个 IP,
+            #   因为 curl 那次超时了 —— 即 wget 更可靠, 无副作用)。
+            #
+            #   注: 不能用 nslookup 替代。它走系统解析器会拿到 fake-ip (198.18.x);
+            #   必须保持打 clash 的 DNS API 这条路径才能拿到真实 IP。
+            #
+            # 想恢复上游默认: 删掉本段即可。
+            if grep -q 'curl -s -m 3 -H ' "$OC_WATCHDOG"; then
+                sed -i 's|curl -s -m 3 -H |wget -qO- -T 3 --header=|' "$OC_WATCHDOG"
+            fi
+            if grep -q 'wget -qO- -T 3 --header=' "$OC_WATCHDOG" \
+               && ! grep -q 'curl -s -m 3 -H ' "$OC_WATCHDOG"; then
+                echo "✅ 已把「跳过代理地址」的 HTTP 客户端 curl -> busybox wget (实测 36 秒 -> 4 秒)"
+            else
+                echo "⚠️ watchdog 的 curl->wget 改写失败, 上游可能改了写法, 请检查:"
+                grep -n 'curl\|wget' "$OC_WATCHDOG" | head -5
+            fi
         else
             echo ""
             echo "⚠️ 未找到 $OC_WATCHDOG, 跳过「跳过代理地址」间隔改写"
