@@ -496,6 +496,43 @@ integrate_mihomo() {
         echo "   → 用户可在 OpenClash 中手动上传或在线下载内核"
     fi
 
+    # ── 集成 LightGBM 模型文件 ──
+    #
+    # 为什么内置: Smart 策略需要 /etc/openclash/Model.bin, 而 OpenClash 默认
+    # 是运行时从 GitHub 下载 (openclash_lgbm.sh, lgbm_auto_update=0 时根本不下载)。
+    # 这台路由器的 WAN 是校园网, 首次启动时既没有代理也连不稳 GitHub,
+    # 所以把模型直接打进固件, 免去首启动下载。
+    #
+    # 体积: Model.bin 8.9 MiB。瘦身后的 squashfs-sysupgrade.itb 约 52.3 MB,
+    # 而 fit 分区 67.8 MiB → 剩约 15 MB, 放得下 (实测数据)。
+    # 注意: 必须用【瘦身后】的构建; 瘦身前那个 67.7 MB 的镜像是 0 剩余空间。
+    #
+    # 想移除: 删掉本段即可 (模型改由 OpenClash 运行时下载)。
+    if [ "$GOT_SMART" = "true" ]; then
+        local LGBM_URL="https://github.com/vernesong/mihomo/releases/download/LightGBM-Model/Model.bin"
+        local LGBM_PATH="files/etc/openclash/Model.bin"
+        echo ""
+        echo "📥 集成 LightGBM 模型 (Model.bin, 约 8.9 MiB)..."
+        mkdir -p files/etc/openclash
+        if wget -q -O "$LGBM_PATH" "$LGBM_URL" && [ -s "$LGBM_PATH" ]; then
+            local LGBM_SZ
+            LGBM_SZ=$(wc -c < "$LGBM_PATH" | tr -d ' ')
+            # 合理性校验: 真实模型约 9.3 MB, 小于 5MB 基本是被限流返回了 HTML
+            if [ "$LGBM_SZ" -gt 5000000 ]; then
+                echo "✅ LightGBM 模型已集成: $LGBM_PATH (${LGBM_SZ} 字节)"
+            else
+                echo "⚠️ 模型文件过小 (${LGBM_SZ} 字节), 疑似被限流, 已删除"
+                rm -f "$LGBM_PATH"
+            fi
+        else
+            echo "⚠️ LightGBM 模型下载失败, 将改由 OpenClash 运行时下载"
+            rm -f "$LGBM_PATH"
+        fi
+    else
+        echo ""
+        echo "⏭️ 内核不含 LightGBM, 跳过模型集成"
+    fi
+
     echo ""
     echo "=========================================="
     echo "✅ 集成完成"
@@ -949,6 +986,101 @@ apply_tweaks() {
         else
             echo ""
             echo "⚠️ 未找到 $OC_WATCHDOG, 跳过「跳过代理地址」间隔改写"
+        fi
+
+        # --- 小巧思1d: 清空 OpenClash 的 CDN 列表, 消除 GitHub 版本检查的 fan-out ---
+        #
+        # 背景 (实测, 2026-10-10):
+        #   openclash_version.lua 的 build_fetch_urls() / build_feed_urls() 在
+        #   github_address_mod=0 (直连) 时, 会把「直连 + cdn.list 里全部地址」
+        #   当候选【并发竞速】(MAX_URL_BATCH=3, 每个 curl -m 5):
+        #       local urls = { raw_url(path) }
+        #       for _, cdn in ipairs(cdn_list()) do
+        #           urls[#urls + 1] = cdn .. raw_url(path)
+        #       end
+        #   而 cdn.list 内置的 11 个地址, 实测在校园网上只有 3 个可用
+        #   (gh-proxy.com / 777.z321.cc.cd / g.z321.cc.cd), 其余全部超时。
+        #   → 每次版本检查都要等 5 秒 × 多个, 实测把 load1 顶到 10.7 (历史最高),
+        #     进程表里全是 `curl -sL -m 5 https://gh-proxy.com/...`。
+        #
+        #   cdn_list() 会跳过 "#" 开头的行 (luasrc/openclash.lua:632), 所以把
+        #   cdn.list 全部注释掉后 cdn_list() 返回空表, 只剩直连那一条 URL。
+        #
+        # ⚠️ 还要禁掉自动刷新: update_cdn_list() 会在本地文件超过
+        #    CDN_LIST_MAX_AGE(7 天) 时从 GitHub 重新拉这份列表, 把清空覆盖掉。
+        #    所以把 CDN_LIST_MAX_AGE 改成极大值。
+        #
+        # 副作用: LuCI「GitHub 地址修改」的下拉框会变空。需要的话在 uci 的
+        #         github_addr_custom 里填地址 (它会追加进列表)。
+        local OC_VERSION_LUA="package/luci-app-openclash/root/usr/share/openclash/openclash_version.lua"
+        local OC_CDNLIST="package/luci-app-openclash/root/usr/share/openclash/res/cdn.list"
+        if [ -f "$OC_CDNLIST" ]; then
+            cat > "$OC_CDNLIST" <<'CDNEOF'
+# CDN proxy address list (one URL per line, "#" starts a comment)
+#
+# 已由 diy-part2.sh 清空。
+# 原因: openclash_version.lua 的 build_fetch_urls()/build_feed_urls() 在
+#       github_address_mod=0 时会把「直连 + 本文件所有地址」当候选并发竞速
+#       (3 个一批, 每个 curl -m 5)。实测校园网上内置的 11 个地址只有 3 个可用,
+#       其余全超时 -> 每次版本检查要等 5 秒 x 多个, 实测 load1 冲到 10.7。
+# 全部注释掉后 cdn_list() 返回空表, 就只剩直连那一条 URL。
+#
+# 想恢复: 删掉本文件重新编译, 或在这里填可用地址 (每行一个)。
+CDNEOF
+            echo ""
+            echo "✅ 已清空 OpenClash 的 CDN 列表 (消除 GitHub 版本检查的 fan-out)"
+        else
+            echo ""
+            echo "⚠️ 未找到 $OC_CDNLIST, 跳过 CDN 列表清空"
+        fi
+        if [ -f "$OC_VERSION_LUA" ] && grep -q '^local CDN_LIST_MAX_AGE = ' "$OC_VERSION_LUA"; then
+            sed -i 's/^local CDN_LIST_MAX_AGE = .*$/local CDN_LIST_MAX_AGE = 100 * 365 * 24 * 3600 -- patched: 不自动刷新, 见 diy-part2.sh/' "$OC_VERSION_LUA"
+            if grep -q 'CDN_LIST_MAX_AGE = 100 \* 365' "$OC_VERSION_LUA"; then
+                echo "✅ 已禁止 CDN 列表自动刷新 (否则 7 天后会被上游覆盖回去)"
+            else
+                echo "⚠️ CDN_LIST_MAX_AGE 改写失败, 请检查 $OC_VERSION_LUA"
+            fi
+        fi
+
+        # --- 小巧思1e: 修掉节点切换的「慢恢复 + 抖动」 ---
+        #
+        # 实测 (2026-10-10): 订阅里 8 个 url-test 组全是
+        #     interval: 200 / lazy: false / url: https://captive.apple.com
+        # 而 OpenClash 的覆写项 tolerance=0 / urltest_interval_mod=0 (都没生效)。
+        #
+        # 这组合最差:
+        #   ① interval=200 (3分20秒): 当前节点挂了最多要等 200 秒才重新测速切走
+        #      —— 就是「有时候节点全都连不上, 过了一会触发自动测速又好了」,
+        #         这期间游戏直接掉线;
+        #   ② tolerance=0: 只要新节点比当前快 1ms 就切 → 频繁切换,
+        #      切换瞬间已有连接会断 —— 就是「游戏中的突然掉线」。
+        #   日志佐证: /tmp/openclash.log 里 "activate health check" 出现 225 次。
+        #
+        # 修法: 用 OpenClash 自己的覆写项 (不碰订阅文件, 订阅更新也不丢)
+        #   urltest_interval_mod = 60   测速间隔 200s -> 60s, 恢复快 3 倍多
+        #   tolerance            = 150  新节点要比当前快 150ms 才切, 抑制抖动
+        # 由 yml_rules_change.sh 写进所有 url-test 组的 interval / tolerance。
+        #
+        # 单独放一个 uci-defaults 文件, 避免动到上面已经生成好的预设文件
+        # (那个文件末尾已经写了 commit + exit 0)。
+        # 文件名排序: zz-openclash-preset < zz-openclash-urltest, 所以它在预设之后执行。
+        local OC_URLTEST_DEFAULTS="files/etc/uci-defaults/zz-openclash-urltest"
+        {
+            echo '#!/bin/sh'
+            echo '# 由 diy-part2.sh 生成 —— 节点切换: 加快恢复 + 抑制抖动'
+            echo '# 原因见 diy-part2.sh「小巧思1e」'
+            echo '[ -n "$(uci -q get openclash.@config_overwrite[0])" ] || uci -q add openclash config_overwrite'
+            echo "uci -q set openclash.@config_overwrite[0].urltest_interval_mod='60'"
+            echo "uci -q set openclash.@config_overwrite[0].tolerance='150'"
+            echo 'uci -q commit openclash'
+            echo 'exit 0'
+        } > "$OC_URLTEST_DEFAULTS"
+        chmod 755 "$OC_URLTEST_DEFAULTS"
+        if grep -q "urltest_interval_mod='60'" "$OC_URLTEST_DEFAULTS" \
+           && grep -q "tolerance='150'" "$OC_URLTEST_DEFAULTS"; then
+            echo "✅ 已生成测速覆写预设: $OC_URLTEST_DEFAULTS (interval=60s, tolerance=150ms)"
+        else
+            echo "⚠️ 测速覆写预设生成异常, 请检查 $OC_URLTEST_DEFAULTS"
         fi
 
         # 下载最新 Zashboard 面板替换预置版本
