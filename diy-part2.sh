@@ -370,37 +370,63 @@ integrate_mihomo() {
     
     mkdir -p files/etc/openclash/core
     local KERNEL_PATH="files/etc/openclash/core/clash_meta"
+    # ── 内核来源: vernesong/mihomo (OpenClash 作者自己的分支) ──
+    #
+    # 为什么不用 MetaCubeX 官方内核:
+    #   OpenClash 的「智能策略」(Smart 策略组) 依赖 LightGBM 机器学习模型来预测
+    #   节点质量, 而官方 mihomo 内核【不含】该模块 —— 实测官方 arm64 内核里
+    #   `strings clash_meta | grep -c lightgbm` = 0。
+    #   vernesong 的分支带 component/smart/lightgbm/, 资产名里多一个 -smart 后缀:
+    #       官方:      mihomo-linux-arm64-alpha-<7位hash>.gz
+    #       vernesong: mihomo-linux-arm64-alpha-smart-<7位hash>.gz
+    #   配套模型文件在 vernesong 的 LightGBM-Model release:
+    #       Model.bin (9.3MB 轻量) / Model-middle.bin (18MB) / Model-large.bin (26.8MB)
+    #   OpenClash 用 openclash_lgbm.sh 下载到 /etc/openclash/Model.bin
+    #   (small_flash_memory=1 时是 /tmp/etc/openclash/Model.bin)。
+    #
+    # 体积核对: vernesong 的 arm64 gz = 20.2MB, 官方 = 19.8MB, 只大 1.6%,
+    #   UPX 压缩后体积接近 (设备上现有内核 12.7MB), 闪存放得下。
+    #
+    # 回退链: vernesong Alpha(-smart) -> vernesong release 列表里再找一次
+    #         -> MetaCubeX 官方正式版 (会失去 Smart 能力, 打告警)
+    local VM_REPO="vernesong/mihomo"
+    local VM_TAG="Prerelease-Alpha"
+    local VM_PATTERN='mihomo-linux-arm64-alpha-smart-[a-f0-9]*\.gz'
     local FALLBACK_TAG="v1.19.29"
     local FALLBACK_URL="https://github.com/MetaCubeX/mihomo/releases/download/${FALLBACK_TAG}/mihomo-linux-arm64-${FALLBACK_TAG}.gz"
     local VERSION=""
     local URL=""
-    
-    # 优先级1: Alpha 预览版 (动态获取含短哈希的文件名)
-    echo "🔍 [1/3] 尝试 Alpha 预览版..."
+    local GOT_SMART=false
+
+    # 优先级1: vernesong 的 Alpha (含 LightGBM)
+    echo "🔍 [1/3] 尝试 vernesong/mihomo Alpha (含 LightGBM)..."
     local ALPHA_FILE
-    ALPHA_FILE=$(wget -q -O- "https://api.github.com/repos/MetaCubeX/mihomo/releases/tags/Prerelease-Alpha" 2>/dev/null | \
-        grep -o '"name": *"mihomo-linux-arm64-alpha-[a-f0-9]*\.gz"' | \
-        grep -o 'mihomo-linux-arm64-alpha-[a-f0-9]*\.gz')
-    
+    ALPHA_FILE=$(wget -q -O- "https://api.github.com/repos/${VM_REPO}/releases/tags/${VM_TAG}" 2>/dev/null | \
+        grep -o "\"name\": *\"${VM_PATTERN}\"" | \
+        grep -o "${VM_PATTERN}")
+
     if [ -n "$ALPHA_FILE" ]; then
-        URL="https://github.com/MetaCubeX/mihomo/releases/download/Prerelease-Alpha/${ALPHA_FILE}"
-        VERSION="Alpha"
+        URL="https://github.com/${VM_REPO}/releases/download/${VM_TAG}/${ALPHA_FILE}"
+        VERSION="vernesong Alpha (smart)"
+        GOT_SMART=true
         echo "✅ 获取到 Alpha 文件名: ${ALPHA_FILE}"
     else
-        # 优先级2: 正式版 (API获取最新tag)
-        echo "⚠️ Alpha 版获取失败, 尝试正式版..."
-        echo "🔍 [2/3] 尝试正式版..."
-        local STABLE_TAG
-        STABLE_TAG="$(get_latest_tag "MetaCubeX/mihomo")"
-        if [ -n "$STABLE_TAG" ]; then
-            URL="https://github.com/MetaCubeX/mihomo/releases/download/${STABLE_TAG}/mihomo-linux-arm64-${STABLE_TAG}.gz"
-            VERSION="${STABLE_TAG}"
-            echo "✅ 获取到正式版: ${STABLE_TAG}"
+        # 优先级2: 遍历 vernesong 的 release 列表再找一次 (tag 名变了也能兜住)
+        echo "⚠️ 按 tag 取失败, 改为遍历 release 列表..."
+        echo "🔍 [2/3] 遍历 ${VM_REPO} 的 releases..."
+        ALPHA_FILE=$(wget -q -O- "https://api.github.com/repos/${VM_REPO}/releases?per_page=10" 2>/dev/null | \
+            grep -o "${VM_PATTERN}" | head -1)
+        if [ -n "$ALPHA_FILE" ]; then
+            URL="https://github.com/${VM_REPO}/releases/download/${VM_TAG}/${ALPHA_FILE}"
+            VERSION="vernesong Alpha (smart, 列表回退)"
+            GOT_SMART=true
+            echo "✅ 从 release 列表取到: ${ALPHA_FILE}"
         else
-            # 优先级3: 硬编码回退版本
-            echo "🔍 [3/3] 回退到 ${FALLBACK_TAG}"
+            # 优先级3: 退回 MetaCubeX 官方 (无 Smart)
+            echo "🔍 [3/3] vernesong 取不到, 回退官方 ${FALLBACK_TAG}"
             URL="$FALLBACK_URL"
-            VERSION="${FALLBACK_TAG} (回退)"
+            VERSION="${FALLBACK_TAG} (官方回退, 无 Smart)"
+            echo "⚠️ 将使用官方内核 —— OpenClash 的智能策略(LightGBM)将不可用"
         fi
     fi
     
@@ -441,6 +467,19 @@ integrate_mihomo() {
             rm -f "$KERNEL_PATH"
             continue
         fi
+
+        # 自校验: 内核是否真的含 LightGBM (Smart 策略依赖它)
+        # 必须放在 UPX 压缩之前 —— 压缩后 strings 就查不到了
+        if command -v strings >/dev/null 2>&1; then
+            if strings "$KERNEL_PATH" 2>/dev/null | grep -qi 'lightgbm'; then
+                echo "   ✅ 内核含 LightGBM (Smart 智能策略可用)"
+                GOT_SMART=true
+            else
+                echo "   ⚠️ 内核不含 LightGBM (Smart 智能策略不可用)"
+                GOT_SMART=false
+            fi
+        fi
+
         
         chmod 755 "$KERNEL_PATH"
         ensure_upx
@@ -465,6 +504,11 @@ integrate_mihomo() {
         echo "   - mihomo 内核: 已集成 ✅"
         echo "   - 内核路径: $KERNEL_PATH"
         echo "   - 内核版本: ${VERSION}"
+        if [ "$GOT_SMART" = "true" ]; then
+            echo "   - LightGBM/Smart 支持: 有 ✅ (vernesong -smart 内核)"
+        else
+            echo "   - LightGBM/Smart 支持: 无 ⚠️ (回退到官方内核, 智能策略不可用)"
+        fi
     else
         echo "   - mihomo 内核: 未集成 (用户可手动上传)"
     fi
